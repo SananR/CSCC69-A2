@@ -144,10 +144,7 @@ exec (const char *cmd_line) {
     sema_down (&child->loading_sema);
   // If loading fails, we return -1
   else if (child->load_status == LOAD_FAILED)
-  {
-    list_remove (&child->child_elem);
     return -1;
-  }
   return tid;
 }
 
