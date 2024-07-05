@@ -122,7 +122,9 @@ exit (int status)
   struct thread *cur = thread_current();
   printf("%s: exit(%d)\n", cur->name, status);
   cur->exit_status = status;
-  sema_up (&cur->waiting_sema);
+  // PROBLEM IS HERE VVVV
+  if (cur->waited_on)
+    sema_up (&cur->waiting_sema);
   //f->eax = status;
   thread_exit ();
 }
@@ -142,10 +144,10 @@ exec (const char *cmd_line) {
   // Block while the process is still loading
   if (child->load_status == LOADING) 
     sema_down (&child->loading_sema);
-  // If loading fails, we return -1
-  else if (child->load_status == LOAD_FAILED)
+  if (child->load_status == LOAD_FAILED)
     return -1;
-  return tid;
+  else if (child->load_status == LOAD_SUCCESS)
+    return tid;
 }
 
 /*

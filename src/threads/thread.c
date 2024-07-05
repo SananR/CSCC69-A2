@@ -208,6 +208,7 @@ thread_create (const char *name, int priority,
   list_push_front (&curr->child_list, &t->child_elem);
 
   sema_init (&t->loading_sema, 0);
+  t->load_status = LOADING;
 
   intr_set_level (old_level);
 
