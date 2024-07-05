@@ -19,6 +19,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "process.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -64,6 +65,13 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
+
+  if (!success)
+    thread_current()->load_status = LOAD_FAILED;
+  else
+    thread_current()->load_status = LOAD_SUCCESS;
+  // Ensure synchronization with parent
+  sema_up (&thread_current()->loading_sema);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);

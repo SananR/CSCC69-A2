@@ -207,6 +207,8 @@ thread_create (const char *name, int priority,
   t->parent = thread_current ();
   list_push_front (&curr->child_list, &t->child_elem);
 
+  sema_init (&t->loading_sema, 0);
+
   intr_set_level (old_level);
 
   /* Add to run queue. */

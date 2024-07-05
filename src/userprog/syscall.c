@@ -54,26 +54,44 @@ syscall_init (void)
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
-void
-validate_user_address (uint8_t * addr)
-{
-  if (is_kernel_vaddr (addr) || get_user (addr) == -1) 
-    exit (-1);
-}
 
-void 
-extract_arguments (struct intr_frame *f, int *buf, int count) 
+static void
+syscall_handler (struct intr_frame *f UNUSED) 
 {
-  uint32_t *user_ptr = (uint32_t *)f->esp + 1;
+  unsigned syscall_number;
+  int args[USER_PROCESS_MAXIMUM_ARGUMENTS];
 
-  // Validate each address
-  for (int i = 0; i < count; i++) {
-    uint32_t *current_addr = user_ptr + i;
-    validate_user_address ((void *)current_addr);
-    buf[i] = *user_ptr;
-    user_ptr++;
+  // Validate 4 bytes for syscall number
+  for (unsigned i=0; i<=sizeof syscall_number; i++) 
+    validate_user_address (f->esp + i);
+
+  copy_in (&syscall_number, f->esp, sizeof syscall_number);
+
+  switch (syscall_number)
+  {
+    case SYS_WRITE:
+      extract_arguments (f, args, 3);
+      validate_user_address ((void *) args[1]);
+      f->eax = write (args[0], (void *)args[1], args[2]);
+      break;
+    case SYS_EXIT:
+      extract_arguments (f, args, 1);
+      exit (args[0]);
+      break;
+    case SYS_HALT:
+      halt ();
+      break;
+    case SYS_EXEC:
+      extract_arguments (f, args, 1);
+      //TODO VALIDATE STRING
+      f->eax = exec ((char *)args[0]);
+      break;
   }
 }
+
+/*
+  System call handlers
+*/
 
 int
 write (int fd, void *buffer, unsigned size)
@@ -115,36 +133,45 @@ halt (void)
   shutdown_power_off ();
 }
 
-
-static void
-syscall_handler (struct intr_frame *f UNUSED) 
-{
-  unsigned syscall_number;
-  int args[USER_PROCESS_MAXIMUM_ARGUMENTS];
-
-  // Validate 4 bytes for syscall number
-  for (unsigned i=0; i<=sizeof syscall_number; i++) 
-    validate_user_address (f->esp + i);
-
-  copy_in (&syscall_number, f->esp, sizeof syscall_number);
-
-  switch (syscall_number)
+tid_t 
+exec (const char *cmd_line) {
+  tid_t tid = process_execute(cmd_line);
+  struct thread *child = get_child_thread (tid);
+  if (!child) 
+    return -1;
+  // Block while the process is still loading
+  if (child->load_status == LOADING) 
+    sema_down (&child->loading_sema);
+  // If loading fails, we return -1
+  else if (child->load_status == LOAD_FAILED)
   {
-    case SYS_WRITE:
-      extract_arguments (f, args, 3);
-      validate_user_address ((void *) args[1]);
-      f->eax = write (args[0], (void *)args[1], args[2]);
-      break;
-    case SYS_EXIT:
-      extract_arguments (f, args, 1);
-      exit (args[0]);
-      break;
-    case SYS_HALT:
-      halt ();
-      break;
+    list_remove (&child->child_elem);
+    return -1;
   }
+  return tid;
 }
 
 /*
-  System call handlers
+ Utilities / Helpers
 */
+
+void
+validate_user_address (uint8_t * addr)
+{
+  if (is_kernel_vaddr (addr) || get_user (addr) == -1) 
+    exit (-1);
+}
+
+void 
+extract_arguments (struct intr_frame *f, int *buf, int count) 
+{
+  uint32_t *user_ptr = (uint32_t *)f->esp + 1;
+
+  // Validate each address
+  for (int i = 0; i < count; i++) {
+    uint32_t *current_addr = user_ptr + i;
+    validate_user_address ((void *)current_addr);
+    buf[i] = *user_ptr;
+    user_ptr++;
+  }
+}
