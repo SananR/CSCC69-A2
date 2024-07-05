@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -202,13 +203,16 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   struct thread *curr = thread_current ();
+
   /* Add thread to current thread's child list */
   list_init(&t->child_list);
-  t->parent = thread_current ();
-  list_push_front (&curr->child_list, &t->child_elem);
-
-  sema_init (&t->loading_sema, 0);
-  t->load_status = LOADING;
+  struct child_process *cp = malloc(sizeof(struct child_process));
+  cp->parent = thread_current ();
+  sema_init (&cp->loading_sema, 0);
+  cp->load_status = LOADING;
+  cp->tid = tid;
+  list_push_front (&curr->child_list, &cp->elem);
+  t->cp = cp;
 
   intr_set_level (old_level);
 

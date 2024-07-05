@@ -37,14 +37,20 @@ process_execute (const char *file_name)
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  if (fn_copy == NULL) 
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
   char *temp;
-  file_name = strtok_r( (char *)file_name, " ", &temp );
+
+  char *full = palloc_get_page (0);
+  if (full == NULL) 
+    return TID_ERROR;
+  strlcpy (full, file_name, PGSIZE);
+
+  fn_copy = strtok_r( (char *)fn_copy, " ", &temp );
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (fn_copy, PRI_DEFAULT, start_process, full);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -67,11 +73,11 @@ start_process (void *file_name_)
   success = load (file_name, &if_.eip, &if_.esp);
 
   if (!success)
-    thread_current()->load_status = LOAD_FAILED;
+    thread_current()->cp->load_status = LOAD_FAILED;
   else
-    thread_current()->load_status = LOAD_SUCCESS;
+    thread_current()->cp->load_status = LOAD_SUCCESS;
   // Ensure synchronization with parent
-  sema_up (&thread_current()->loading_sema);
+  sema_up (&thread_current()->cp->loading_sema);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -88,14 +94,14 @@ start_process (void *file_name_)
   NOT_REACHED ();
 }
 
-struct thread* get_child_thread (tid_t child_tid)
+struct child_process* get_child_process (tid_t child_tid)
 {
   struct thread *t = thread_current();
   struct list_elem *next;
   for (struct list_elem *e = list_begin(&t->child_list); e != list_end(&t->child_list); e = next)
   {
     next = list_next(e);
-    struct thread *child = list_entry(e, struct thread, child_elem);
+    struct child_process *child = list_entry(e, struct child_process, elem);
     if (child_tid == child->tid)
     {
       return child;
@@ -116,13 +122,12 @@ struct thread* get_child_thread (tid_t child_tid)
 int
 process_wait (tid_t child_tid) 
 {
-  struct thread *t = get_child_thread (child_tid);
-
+  struct child_process *t = get_child_process (child_tid);
   if (!t || child_tid < 0 || t->waited_on) return -1;
   t->waited_on = true;
   sema_init (&t->waiting_sema, 0);
   sema_down (&t->waiting_sema);
-  return thread_current()->exit_status;
+  return t->exit_status;
 }
 
 /* Free the current process's resources. */
@@ -131,8 +136,6 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
-  list_remove(&cur->child_elem);
   
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -512,6 +515,11 @@ setup_stack (void **esp, char **args, int argc)
         // Push the arguments (strings) to the stack
         for (i = 0; args[i] != NULL; i++) {
           off += strlen(args[i])+1;
+          if (off >= 4096) 
+          {
+            palloc_free_page (kpage);
+            return false;
+          }
           argAddress[i] = (void *) (PHYS_BASE - off);
           memcpy(PHYS_BASE - off, args[i], strlen(args[i])+1);
         }
@@ -519,31 +527,61 @@ setup_stack (void **esp, char **args, int argc)
         // Push word align
         for (i = 0; i < (off % 4); i++) {
           off++;
+          if (off >= 4096) 
+          {
+            palloc_free_page (kpage);
+            return false;
+          }
           memset(PHYS_BASE - off, 0, 1);
         }
 
         // Push null sentinel 
         off += 4;
+        if (off >= 4096) 
+        {
+          palloc_free_page (kpage);
+          return false;
+        }
         temp = PHYS_BASE - off;
         *temp = (uint32_t)NULL;
 
         // Push address of arguments (right to left)
         for (i = argc; i >= 0; i--) {
           off += 4;
+          if (off >= 4096) 
+          {
+            palloc_free_page (kpage);
+            return false;
+          }
           memcpy(PHYS_BASE - off, &argAddress[i], 4);
         }
 
         // Push address of argv
         off += 4;
+        if (off >= 4096) 
+        {
+          palloc_free_page (kpage);
+          return false;
+        }
         temp = PHYS_BASE - off;
         *temp = (uint32_t)(PHYS_BASE - off + 4);
 
         // Push argc
         off += 4;
+        if (off >= 4096) 
+        {
+          palloc_free_page (kpage);
+          return false;
+        }
         memset(PHYS_BASE - off, argc+1, 1);
 
         // Push fake return address
         off += 4;
+        if (off >= 4096) 
+        {
+          palloc_free_page (kpage);
+          return false;
+        }
         memset(PHYS_BASE - off, 0, 4);
 
         *esp = PHYS_BASE - off;

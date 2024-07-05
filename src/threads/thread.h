@@ -33,6 +33,22 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+
+/* State information regarding a child thread/process */
+struct child_process
+  {
+    tid_t tid;                                 /* tid of the child process */
+    struct thread *parent;                     /* Thread of the parent process */
+    struct list_elem elem;                     /* List element for child processes list. */
+    bool waited_on;                            /* Whether or not the process is being waited on by process_wait */
+    bool exited;                               /* Whether or not the process has exited due to a system call */
+    int exit_status;                           /* The status of the process after exiting */
+    struct semaphore waiting_sema;             /* Semaphore used when waiting on a child process with process_wait */
+    struct semaphore loading_sema;             /* Semaphore used to ensure proper synchronization while loading child process */
+    enum userprog_loading_status load_status;  /* Whether or not the process failed to load the user program */
+  };
+
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -102,19 +118,12 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-    struct thread *parent;              /* Thread of the parent process */
-    struct list_elem child_elem;        /* List element for child processes list. */
     struct list child_list;             /* List of child processes. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                         /* Page directory. */
-    bool waited_on;                            /* Whether or not the process is being waited on by process_wait */
-    bool exited;                               /* Whether or not the process has exited due to a system call */
-    int exit_status;                           /* The status of the process after exiting */
-    struct semaphore waiting_sema;             /* Semaphore used when waiting on a child process with process_wait */
-    struct semaphore loading_sema;             /* Semaphore used to ensure proper synchronization while loading child process */
-    enum userprog_loading_status load_status;  /* Whether or not the process failed to load the user program */
+    struct child_process *cp;                  /* A reference to child_process struct state */
 #endif
 
     /* Owned by thread.c. */

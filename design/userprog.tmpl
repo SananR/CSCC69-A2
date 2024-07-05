@@ -8,9 +8,7 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Sanan Rao sanan.rao@mail.utoronto.ca
 
 ---- PRELIMINARIES ----
 
@@ -30,19 +28,43 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+No new data structures.
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe how you implemented argument parsing.  How do
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
+I split the file_name using strtok_r and pass them to the setup_stack function.
+setup_stack keeps a counter to the current "offset" on the stack and pushes
+the arguments and other data in the correct order, while incrementing the
+counter. This counter effectively represents the number of bytes pushed
+to the stack, so we can ensure before every push that this is less than
+4kb, otherwise return failure. 
+
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
 
+Because strtok_r() is a "reentrant" version of strtok and thus it is
+thread safe, which is of course essential in Pintos. 
+
 >> A4: In Pintos, the kernel separates commands into a executable name
 >> and arguments.  In Unix-like systems, the shell does this
 >> separation.  Identify at least two advantages of the Unix approach.
+
+* The unix approach allows for more customization/extensibility since
+different shell programs can provide different ways of parsing, as well
+as other features. This gives a better seperation of concern / responsibility,
+since the parsing of arguments isn't really the job of the OS/kernel, and
+can then be freely modified with changing the kernel. 
+
+* A simpler kernel is less prone to bugs and vulnerabilities. By limiting
+the kernel's role in command parsing, the risk of security issues related
+to command interpretation is minimized. This separation also makes it easier
+to isolate and address security vulnerabilities in user components
+(like the shell) without impacting the kernel's stability.
 
                  SYSTEM CALLS
                  ============
@@ -86,6 +108,20 @@ FirstName LastName <email@domain.example>
 >> paragraphs, describe the strategy or strategies you adopted for
 >> managing these issues.  Give an example.
 
+I used the get_user() strategy and modified the page fault exception 
+code to correctly handle page faults in the kernel. This means that
+I only check that each address passed from the user as an argument
+does not point to a space in kernel memory, and then dereference
+the pointer and check for a segfault using get_user(). In the case
+that the pointer is invalid, a page fault occurs which sets eax to
+0xffffffff and copies its former value into eip. 
+
+To ensure that the locks held by the process are correctly released
+a list of all held locks is maintained by threads, and upon the 
+process exiting they are all released iteratively. The page and all
+allocated memory is also freed by the kernel since the process exits
+"normally" (with code -1). 
+
 ---- SYNCHRONIZATION ----
 
 >> B7: The "exec" system call returns -1 if loading the new executable
@@ -105,11 +141,18 @@ FirstName LastName <email@domain.example>
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
 
+I found that modifying the page fault code and using the get_user
+function was actually easier as it led to more modular error 
+handling code. Furthermore, I wanted to get extra practice with
+page faults in preparation for the next assignment.
+
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
 
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
+
+I used the default identity mapping.
 
                SURVEY QUESTIONS
                ================

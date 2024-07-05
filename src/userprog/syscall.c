@@ -10,6 +10,7 @@
 #define USER_PROCESS_MAXIMUM_ARGUMENTS 5
 
 
+void validate_user_string (char *str);
 void validate_user_address (uint8_t * addr);
 void extract_arguments (struct intr_frame *f, int *buf, int count);
 static void syscall_handler (struct intr_frame *);
@@ -83,7 +84,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     case SYS_EXEC:
       extract_arguments (f, args, 1);
-      //TODO VALIDATE STRING
+      validate_user_string ((char *)args[0]);
       f->eax = exec ((char *)args[0]);
       break;
   }
@@ -121,11 +122,9 @@ exit (int status)
 {
   struct thread *cur = thread_current();
   printf("%s: exit(%d)\n", cur->name, status);
-  cur->exit_status = status;
-  // PROBLEM IS HERE VVVV
-  if (cur->waited_on)
-    sema_up (&cur->waiting_sema);
-  //f->eax = status;
+  cur->cp->exit_status = status;
+  if (cur->cp->waited_on)
+    sema_up (&cur->cp->waiting_sema);
   thread_exit ();
 }
 
@@ -138,21 +137,39 @@ halt (void)
 tid_t 
 exec (const char *cmd_line) {
   tid_t tid = process_execute(cmd_line);
-  struct thread *child = get_child_thread (tid);
+  if (!tid)
+    return -1;
+  struct child_process *child = get_child_process (tid);
   if (!child) 
     return -1;
   // Block while the process is still loading
   if (child->load_status == LOADING) 
+  {
     sema_down (&child->loading_sema);
-  if (child->load_status == LOAD_FAILED)
+  }
+  enum userprog_loading_status status = child->load_status;
+  list_remove(&child->elem);
+  free(child);
+  if (status == LOAD_FAILED)
     return -1;
-  else if (child->load_status == LOAD_SUCCESS)
+  else if (status == LOAD_SUCCESS)
     return tid;
 }
 
 /*
  Utilities / Helpers
 */
+
+void
+validate_user_string (char *str) 
+{
+  int i=0;
+  while (get_user ((uint8_t *) str + i) != '\0') 
+  {
+    validate_user_address ((uint8_t *) str + i);
+    i++;
+  }
+}
 
 void
 validate_user_address (uint8_t * addr)
@@ -167,8 +184,10 @@ extract_arguments (struct intr_frame *f, int *buf, int count)
   uint32_t *user_ptr = (uint32_t *)f->esp + 1;
 
   // Validate each address
-  for (int i = 0; i < count; i++) {
+  for (int i = 0; i < count; i++) 
+  {
     uint32_t *current_addr = user_ptr + i;
+    validate_user_address ((void *)current_addr);
     validate_user_address ((void *)current_addr);
     buf[i] = *user_ptr;
     user_ptr++;
