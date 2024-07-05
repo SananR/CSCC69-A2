@@ -3,6 +3,8 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
+#include "devices/timer.h"
+#include "threads/malloc.h"
 #include <stdlib.h>
 #include <string.h>
 #include "userprog/gdt.h"
@@ -37,6 +39,8 @@ process_execute (const char *file_name)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+  char *temp;
+  file_name = strtok_r( (char *)file_name, " ", &temp );
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -76,6 +80,22 @@ start_process (void *file_name_)
   NOT_REACHED ();
 }
 
+struct thread* get_child_thread (tid_t child_tid)
+{
+  struct thread *t = thread_current();
+  struct list_elem *next;
+  for (struct list_elem *e = list_begin(&t->child_list); e != list_end(&t->child_list); e = next)
+  {
+    next = list_next(e);
+    struct thread *child = list_entry(e, struct thread, child_elem);
+    if (child_tid == child->tid)
+    {
+      return child;
+    }
+  }
+  return NULL;
+}
+
 /* Waits for thread TID to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
    exception), returns -1.  If TID is invalid or if it was not a
@@ -86,9 +106,15 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+  struct thread *t = get_child_thread (child_tid);
+
+  if (!t || child_tid < 0 || t->waited_on) return -1;
+  t->waited_on = true;
+  sema_init (&t->waiting_sema, 0);
+  sema_down (&t->waiting_sema);
+  return thread_current()->exit_status;
 }
 
 /* Free the current process's resources. */
@@ -98,6 +124,8 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+  list_remove(&cur->child_elem);
+  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -195,7 +223,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, char **args, int argc);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -221,11 +249,42 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  /* Parse the filename into it's arguments for setting up the stack */
+  char *file_name_cpy = (char *)malloc(strlen(file_name)+1);
+  strlcpy(file_name_cpy, file_name, strlen(file_name)+1);
+
+  // Deal with multiple spaces
+  char* temp = NULL;
+  while ((temp = strstr(file_name_cpy, "  ")) != NULL)
+    memmove(temp, temp + 1, strlen(temp));
+
+  int count;
+  for (i=0, count=0; file_name_cpy[i]; i++)
+    count += (file_name_cpy[i] == ' ');
+  char **args = (char **)malloc((count+1) * sizeof(char *));
+  if (args == NULL) 
+    goto done;
+  char *rest = file_name_cpy;
+  char *tk = strtok_r(file_name_cpy, " ", &rest);
+  i = 0;
+  while (tk != NULL)
+  {
+    args[i] = malloc (strlen(tk) + 1);
+    if (args[i] == NULL) 
+      goto done;
+    memcpy(args[i], tk, strlen(tk) + 1);
+    tk = strtok_r(rest, " \t\n", &rest);
+    i++;
+  }
+  // NULL sentinel 
+  args[i] = NULL;
+  free(file_name_cpy);
+
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (args[0]);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", args[0]);
       goto done; 
     }
 
@@ -238,7 +297,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      printf ("load: %s: error loading executable\n", args[0]);
       goto done; 
     }
 
@@ -302,7 +361,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, args, count))
     goto done;
 
   /* Start address. */
@@ -427,8 +486,9 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, char **args, int argc) 
 {
+  uint32_t *temp;
   uint8_t *kpage;
   bool success = false;
 
@@ -436,8 +496,53 @@ setup_stack (void **esp)
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
+      if (success) {
+        void *argAddress[argc];
+        int off = 0;
+        int i;
+
+        // Push the arguments (strings) to the stack
+        for (i = 0; args[i] != NULL; i++) {
+          off += strlen(args[i])+1;
+          argAddress[i] = (void *) (PHYS_BASE - off);
+          memcpy(PHYS_BASE - off, args[i], strlen(args[i])+1);
+        }
+
+        // Push word align
+        for (i = 0; i < (off % 4); i++) {
+          off++;
+          memset(PHYS_BASE - off, 0, 1);
+        }
+
+        // Push null sentinel 
+        off += 4;
+        temp = PHYS_BASE - off;
+        *temp = (uint32_t)NULL;
+
+        // Push address of arguments (right to left)
+        for (i = argc; i >= 0; i--) {
+          off += 4;
+          memcpy(PHYS_BASE - off, &argAddress[i], 4);
+        }
+
+        // Push address of argv
+        off += 4;
+        temp = PHYS_BASE - off;
+        *temp = (uint32_t)(PHYS_BASE - off + 4);
+
+        // Push argc
+        off += 4;
+        memset(PHYS_BASE - off, argc+1, 1);
+
+        // Push fake return address
+        off += 4;
+        memset(PHYS_BASE - off, 0, 4);
+
+        *esp = PHYS_BASE - off;
+
+        // Free args array
+        free(args);
+      }
       else
         palloc_free_page (kpage);
     }
