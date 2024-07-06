@@ -75,14 +75,83 @@ to isolate and address security vulnerabilities in user components
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+/* Status of a process loading a user program */
+enum userprog_loading_status
+{
+   LOADING,
+   LOAD_SUCCESS,
+   LOAD_FAILED
+};
+
+/* State information regarding a process's open file */
+struct process_file
+{
+    int fd;
+    struct file *file;
+    struct list_elem elem;
+};
+
+
+/* State information regarding a child thread/process */
+struct child_process
+{
+    tid_t tid;                                 
+    struct thread *parent;                     
+    struct list_elem elem;                     
+    bool waited_on;                            
+    bool exited;                              
+    int exit_status;                           
+    struct semaphore waiting_sema;             
+    struct semaphore loading_sema;             
+    enum userprog_loading_status load_status;
+};
+
+* Added some fields to thread struct to handle open files,
+and child processes.
+
+struct thread
+{
+    ...
+
+    struct list child_list;                    
+
+#ifdef USERPROG
+    ...
+    struct list open_files;                    
+    struct child_process *cp;                  
+    int fd_inc;                             
+#endif
+
+};
+
+* The maximum number of arguments allowed for a system call
+#define USER_PROCESS_MAXIMUM_ARGUMENTS 5
+
+/* Lock used when interacting with the file system */
+static struct lock file_lock;
+/* Used for initializing the lock, for some reason trying to do this in a "cleaner" way led to many issues */
+static bool file_lock_initialized = false;
+
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
+
+Every call to the open system call creates a new file descriptor for a
+file. File descriptors are unique within a single process, but not 
+across the entire OS. 
 
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
+
+I made use of the get_user() function to do all validation, and
+properly handled page faults. I also validate user strings/buffers
+which have a variable size by simply validating each byte until
+reaching the null terminator. The system call number is also
+validated by reading the first 4 bytes on the stack. When any
+of these validations fail, a page fault occurs and the process
+is terminated with a -1 status code. 
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
@@ -90,6 +159,13 @@ to isolate and address security vulnerabilities in user components
 >> (e.g. calls to pagedir_get_page()) that might result?  What about
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
+
+* For a system call that copies an entire page, the least number of
+inspections is 1, this is when the data is aligned and fits entirely
+into a single page (contigiuous). The greatest number of inspections
+is 2 in the case that the data spills over into another page. For a
+system call that only copies 2 bytes, the least and worst case are
+exactly the same. TODO
 
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
@@ -129,6 +205,19 @@ allocated memory is also freed by the kernel since the process exits
 >> loading.  How does your code ensure this?  How is the load
 >> success/failure status passed back to the thread that calls "exec"?
 
+In order to ensure proper synchronization, a semaphore is used. The 
+parent thread downs the semaphore if the status of the child is still
+"loading", and upon loading completion the child ups this semaphore.
+By nature of semaphores the order here is irrelevant. Afterwards,
+we check the state of the child process and on success return its tid,
+otherwise -1.
+
+To ensure that the state of the child is still available, in the case 
+of it having exited and freed it's memory, this state is stored in a 
+seperate struct "child_process". Each thread, maintains a list of all it's
+child processes, which allows us to easily find the state of the child
+even if it has exited, and properly clean up the memory when appropriate. 
+
 >> B8: Consider parent process P with child process C.  How do you
 >> ensure proper synchronization and avoid race conditions when P
 >> calls wait(C) before C exits?  After C exits?  How do you ensure
@@ -148,6 +237,16 @@ page faults in preparation for the next assignment.
 
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
+
+* The main advantage is that the ownership of file descriptors is
+extremely clear since it is local, furthermore the simple mapping
+allows easy storing of the file descriptors. The main disadvantage
+is that there is a lot of memory and initialization overhead since
+each process maintains it's own list of open file descriptors. 
+Another disadvantage is that the list of open file descriptors for 
+a process is stored on that process's page, which has limited size.
+This could be problematic for user programs that need to deal with
+a large number of files. 
 
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?

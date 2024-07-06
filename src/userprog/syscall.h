@@ -6,6 +6,14 @@
 void syscall_init (void);
 
 /* System call handlers */
+void seek (int fd, unsigned position);
+unsigned tell (int fd);
+int filesize (int fd);
+int read (int fd, void *buffer, unsigned size);
+bool remove (const char *file);
+int open (const char *file);
+void close (int fd);
+bool create (const char *file, unsigned initial_size);
 void exit (int status);
 int write (int fd, void *buffer, unsigned size);
 void halt (void);

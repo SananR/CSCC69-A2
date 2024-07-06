@@ -10,6 +10,7 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -137,6 +138,15 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
   
+  /* Close all file descriptors */
+  struct list_elem *next;
+  for (struct list_elem *e = list_begin(&cur->open_files); e != list_end(&cur->open_files); e = next)
+  {
+    next = list_next(e);
+    struct process_file *pf = list_entry (e, struct process_file, elem);
+    close (pf->fd);
+  }
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;

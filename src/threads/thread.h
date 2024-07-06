@@ -34,6 +34,15 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 
 
+/* State information regarding a process's open file */
+struct process_file
+{
+    int fd;
+    struct file *file;
+    struct list_elem elem;
+};
+
+
 /* State information regarding a child thread/process */
 struct child_process
   {
@@ -123,7 +132,9 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                         /* Page directory. */
+    struct list open_files;                    /* List of all files open by the process     */
     struct child_process *cp;                  /* A reference to child_process struct state */
+    int fd_inc;                                /* An incrementer for file descriptors       */
 #endif
 
     /* Owned by thread.c. */
