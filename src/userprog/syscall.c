@@ -313,7 +313,8 @@ exit (int status)
   struct thread *cur = thread_current();
   printf("%s: exit(%d)\n", cur->name, status);
   cur->cp->exit_status = status;
-  sema_up (&cur->cp->waiting_sema);
+  if (cur->cp->parent)
+    sema_up (&cur->cp->waiting_sema);
   thread_exit ();
 }
 
@@ -341,11 +342,7 @@ exec (const char *cmd_line)
   if (status == LOAD_SUCCESS)
     return tid;
   else 
-  {
-    //list_remove(&child->elem);
-    //free(child);
     return -1;
-  }
 }
 
 /*

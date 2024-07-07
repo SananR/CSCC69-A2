@@ -119,7 +119,8 @@ struct thread
     ...
     struct list open_files;                    
     struct child_process *cp;                  
-    int fd_inc;                             
+    int fd_inc;                    
+    struct file *exec;
 #endif
 
 };
@@ -129,8 +130,6 @@ struct thread
 
 /* Lock used when interacting with the file system */
 static struct lock file_lock;
-/* Used for initializing the lock, for some reason trying to do this in a "cleaner" way led to many issues */
-static bool file_lock_initialized = false;
 
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
@@ -138,7 +137,9 @@ static bool file_lock_initialized = false;
 
 Every call to the open system call creates a new file descriptor for a
 file. File descriptors are unique within a single process, but not 
-across the entire OS. 
+across the entire OS. They are stored in a single list of open file
+descriptors on every process, and the process also maintains an
+incrementor to assign pids to open FDs.
 
 ---- ALGORITHMS ----
 
@@ -151,7 +152,10 @@ which have a variable size by simply validating each byte until
 reaching the null terminator. The system call number is also
 validated by reading the first 4 bytes on the stack. When any
 of these validations fail, a page fault occurs and the process
-is terminated with a -1 status code. 
+is terminated with a -1 status code. Page faults have been
+changed so that a page fault in the kernel sets eax to 0xfffffffff
+and copies it's former value into eip. In the case of a page fault
+in a user program, we call exit system call with -1 status code.
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
@@ -163,12 +167,24 @@ is terminated with a -1 status code.
 * For a system call that copies an entire page, the least number of
 inspections is 1, this is when the data is aligned and fits entirely
 into a single page (contigiuous). The greatest number of inspections
-is 2 in the case that the data spills over into another page. For a
-system call that only copies 2 bytes, the least and worst case are
-exactly the same. TODO
+is 2 in the case that the data spills over into another page and is
+contigiuous. If not contigious each byte could spill into another
+page causing an inspection. For a system call that only copies 2 bytes,
+the best case is 1 and the worst case is 2. These numbers can be 
+improved by ensuring contigiuous memory write so that writing a full
+page can result in only 2 inspections in the worst case, which would
+mean it is the same as writing 2 bytes. 
 
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
+
+The wait system call simply calls process_wait. process_wait has been
+implemented as described in the code comment. Synchronization is done
+using a "waiting" semaphore, the parent downs the semaphore on a call
+to process_wait, and the semaphore is upped by the child upon exiting. 
+The status code is maintained in a seperate struct which is available
+even after the child has exited. The parent is responsible for cleaning
+up this struct. More details in the next questions. 
 
 >> B6: Any access to user program memory at a user-specified address
 >> can fail due to a bad pointer value.  Such accesses must cause the
@@ -225,6 +241,23 @@ even if it has exited, and properly clean up the memory when appropriate.
 >> terminates without waiting, before C exits?  After C exits?  Are
 >> there any special cases?
 
+A semaphore is used so that the order between C exiting and uping
+the semaphore, and P downing the semaphore is irrelavant by design
+of semaphores. If the child process C exited and called sema_up 
+before control reached P's sema_down, the result is still the same.
+
+To ensure resources are freed in each case, the cleaning up of memory
+is made to be the responsibility of the parent process, so that the
+parent can clean up after the child once it is ready. Furthermore,
+since this state only exists for child processes this makes sense. 
+
+To handle the case when P terminates without waiting, and before
+C exits we just check to make sure that the parent thread is 
+still alive, and C returns the correct status upon termination as
+usual. P terminating after C exits, without waiting is a normal case,
+and doesn't require any special consideration, in this case it will
+return it's own exit code and not the childs. 
+
 ---- RATIONALE ----
 
 >> B9: Why did you choose to implement access to user memory from the
@@ -232,7 +265,8 @@ even if it has exited, and properly clean up the memory when appropriate.
 
 I found that modifying the page fault code and using the get_user
 function was actually easier as it led to more modular error 
-handling code. Furthermore, I wanted to get extra practice with
+handling code. It is also more efficient as was describd in the
+assignment handout. Furthermore, I wanted to get extra practice with
 page faults in preparation for the next assignment.
 
 >> B10: What advantages or disadvantages can you see to your design
@@ -242,11 +276,12 @@ page faults in preparation for the next assignment.
 extremely clear since it is local, furthermore the simple mapping
 allows easy storing of the file descriptors. The main disadvantage
 is that there is a lot of memory and initialization overhead since
-each process maintains it's own list of open file descriptors. 
-Another disadvantage is that the list of open file descriptors for 
-a process is stored on that process's page, which has limited size.
-This could be problematic for user programs that need to deal with
-a large number of files. 
+each process maintains it's own list of open file descriptors,
+especially since a global lock is used to ensure safe interaction
+with files. Another disadvantage is that the list of open file 
+descriptors for a process is stored on that process's page, which
+has limited size. This could be problematic for user programs that 
+need to deal with a large number of files. 
 
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
