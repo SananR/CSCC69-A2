@@ -336,7 +336,7 @@ exec (const char *cmd_line)
   // Block while the process is still loading
   if (child->load_status == LOADING) 
   {
-    sema_down (&child->loading_sema);
+    sema_try_down (&child->loading_sema);
   }
   enum userprog_loading_status status = child->load_status;
   if (status == LOAD_SUCCESS)

@@ -222,7 +222,7 @@ allocated memory is also freed by the kernel since the process exits
 >> success/failure status passed back to the thread that calls "exec"?
 
 In order to ensure proper synchronization, a semaphore is used. The 
-parent thread downs the semaphore if the status of the child is still
+parent thread "try" downs the semaphore if the status of the child is still
 "loading", and upon loading completion the child ups this semaphore.
 By nature of semaphores the order here is irrelevant. Afterwards,
 we check the state of the child process and on success return its tid,

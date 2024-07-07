@@ -140,7 +140,6 @@ main (int argc, char *argv[])
           /* If spawning this child failed, so should
              the next spawn_child below. */
         }
-
       /* Now spawn the child that will recurse. */
       child_pid = spawn_child (n + 1, RECURSE);
 
