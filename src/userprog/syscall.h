@@ -5,6 +5,10 @@
 
 void syscall_init (void);
 
+/* Lock used when interacting with the file system */
+struct lock file_lock;
+//bool file_lock_initialized = false;
+
 /* System call handlers */
 
 int wait (tid_t tid);

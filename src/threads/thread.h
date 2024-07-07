@@ -135,6 +135,7 @@ struct thread
     struct list open_files;                    /* List of all files open by the process     */
     struct child_process *cp;                  /* A reference to child_process struct state */
     int fd_inc;                                /* An incrementer for file descriptors       */
+    struct file *exec;                         /* Reference to the executable file running  */
 #endif
 
     /* Owned by thread.c. */

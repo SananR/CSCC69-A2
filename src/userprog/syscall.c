@@ -15,10 +15,6 @@
 
 #define USER_PROCESS_MAXIMUM_ARGUMENTS 5
 
-/* Lock used when interacting with the file system */
-static struct lock file_lock;
-static bool file_lock_initialized = false;
-
 struct process_file* get_process_file (int fd);
 void validate_user_string (char *str);
 void validate_user_address (uint8_t * addr);
@@ -77,12 +73,6 @@ syscall_handler (struct intr_frame *f UNUSED)
     validate_user_address (f->esp + i);
 
   copy_in (&syscall_number, f->esp, sizeof syscall_number);
-
-  if (!file_lock_initialized)
-  {
-    lock_init (&file_lock);
-    file_lock_initialized = true;
-  }
 
   switch (syscall_number)
   {
@@ -348,10 +338,14 @@ exec (const char *cmd_line)
     sema_down (&child->loading_sema);
   }
   enum userprog_loading_status status = child->load_status;
-  int exit_status = child->exit_status;
   if (status == LOAD_SUCCESS)
     return tid;
-  else return -1;
+  else 
+  {
+    //list_remove(&child->elem);
+    //free(child);
+    return -1;
+  }
 }
 
 /*

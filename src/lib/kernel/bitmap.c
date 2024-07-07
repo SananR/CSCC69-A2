@@ -4,6 +4,7 @@
 #include <round.h>
 #include <stdio.h>
 #include "threads/malloc.h"
+#include "userprog/syscall.h"
 #ifdef FILESYS
 #include "filesys/file.h"
 #endif
@@ -340,6 +341,7 @@ bitmap_file_size (const struct bitmap *b)
 bool
 bitmap_read (struct bitmap *b, struct file *file) 
 {
+  lock_acquire (&file_lock);
   bool success = true;
   if (b->bit_cnt > 0) 
     {
@@ -347,6 +349,7 @@ bitmap_read (struct bitmap *b, struct file *file)
       success = file_read_at (file, b->bits, size, 0) == size;
       b->bits[elem_cnt (b->bit_cnt) - 1] &= last_mask (b);
     }
+  lock_release (&file_lock);
   return success;
 }
 

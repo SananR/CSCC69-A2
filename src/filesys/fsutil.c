@@ -10,6 +10,8 @@
 #include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/vaddr.h"
+#include "userprog/process.h"
+#include "userprog/syscall.h"
 
 /* List files in the root directory. */
 void
@@ -38,6 +40,7 @@ fsutil_cat (char **argv)
   struct file *file;
   char *buffer;
 
+  lock_acquire (&file_lock);
   printf ("Printing '%s' to the console...\n", file_name);
   file = filesys_open (file_name);
   if (file == NULL)
@@ -54,6 +57,7 @@ fsutil_cat (char **argv)
     }
   palloc_free_page (buffer);
   file_close (file);
+  lock_release (&file_lock);
 }
 
 /* Deletes file ARGV[1]. */
@@ -61,10 +65,11 @@ void
 fsutil_rm (char **argv) 
 {
   const char *file_name = argv[1];
-  
+  lock_acquire (&file_lock);
   printf ("Deleting '%s'...\n", file_name);
   if (!filesys_remove (file_name))
     PANIC ("%s: delete failed\n", file_name);
+  lock_release (&file_lock);
 }
 
 /* Extracts a ustar-format tar archive from the scratch block
@@ -77,6 +82,7 @@ fsutil_extract (char **argv UNUSED)
   struct block *src;
   void *header, *data;
 
+  lock_acquire (&file_lock);
   /* Allocate buffers. */
   header = malloc (BLOCK_SECTOR_SIZE);
   data = malloc (BLOCK_SECTOR_SIZE);
@@ -153,6 +159,7 @@ fsutil_extract (char **argv UNUSED)
 
   free (data);
   free (header);
+  lock_release (&file_lock);
 }
 
 /* Copies file FILE_NAME from the file system to the scratch

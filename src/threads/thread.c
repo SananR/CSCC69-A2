@@ -14,6 +14,7 @@
 #include "malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#include "userprog/syscall.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -91,6 +92,7 @@ thread_init (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
+  lock_init (&file_lock);
   list_init (&ready_list);
   list_init (&all_list);
 
@@ -209,6 +211,7 @@ thread_create (const char *name, int priority,
   struct child_process *cp = malloc(sizeof(struct child_process));
   cp->parent = thread_current ();
   sema_init (&cp->loading_sema, 0);
+  sema_init (&cp->waiting_sema, 0);
   cp->load_status = LOADING;
   cp->tid = tid;
   list_push_front (&curr->child_list, &cp->elem);
@@ -482,6 +485,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   t->fd_inc = 2;
+  t->exec = NULL;
   list_init (&t->open_files);
 
   old_level = intr_disable ();
