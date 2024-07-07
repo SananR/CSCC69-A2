@@ -88,12 +88,14 @@ syscall_handler (struct intr_frame *f UNUSED)
   {
     case SYS_WRITE:
       extract_arguments (f, args, 3);
-      validate_user_address ((void *) args[1]);
+      for (unsigned i=0; i < (unsigned) args[2]; i++)
+        validate_user_address ((void *) args[1] + i);
       f->eax = write (args[0], (void *)args[1], (unsigned) args[2]);
       break;
     case SYS_READ:
       extract_arguments (f, args, 3);
-      validate_user_address ((void *) args[1]);
+      for (unsigned i=0; i < (unsigned) args[2]; i++)
+        validate_user_address ((void *) args[1] + i);
       f->eax = read (args[0], (void *)args[1], (unsigned) args[2]);
       break;
     case SYS_EXIT:
@@ -139,12 +141,22 @@ syscall_handler (struct intr_frame *f UNUSED)
       extract_arguments (f, args, 2);
       seek ((int) args[0], (unsigned) args[1]);
       break;
+    case SYS_WAIT:
+      extract_arguments (f, args, 1);
+      f->eax = wait ((tid_t) args[0]);
+      break;
   }
 }
 
 /*
   System call handlers
 */
+
+int
+wait (tid_t tid)
+{
+  return process_wait(tid);
+}
 
 void
 seek (int fd, unsigned position)
@@ -185,7 +197,10 @@ read (int fd, void *buffer, unsigned size)
   if (fd == 0)
   {
     for (unsigned i = 0; i < size; i++)
+    {
+      validate_user_address (buffer + i);
       *((uint8_t *)buffer + i) = input_getc(); 
+    }
     return size;
   }
   else
@@ -289,9 +304,17 @@ write (int fd, void *buffer, unsigned size)
   }
   else 
   {
-    // TODO
+    lock_acquire (&file_lock);  
+    struct process_file *pf = get_process_file (fd);
+    if (!pf)
+    {
+      lock_release(&file_lock);
+      return -1;
+    }
+    int bytes = file_write(pf->file, buffer, size);
+    lock_release (&file_lock);
+    return bytes;
   }
-  return 0;
 }
 
 void
@@ -300,8 +323,7 @@ exit (int status)
   struct thread *cur = thread_current();
   printf("%s: exit(%d)\n", cur->name, status);
   cur->cp->exit_status = status;
-  if (cur->cp->waited_on)
-    sema_up (&cur->cp->waiting_sema);
+  sema_up (&cur->cp->waiting_sema);
   thread_exit ();
 }
 
@@ -326,8 +348,7 @@ exec (const char *cmd_line)
     sema_down (&child->loading_sema);
   }
   enum userprog_loading_status status = child->load_status;
-  list_remove(&child->elem);
-  free(child);
+  int exit_status = child->exit_status;
   if (status == LOAD_SUCCESS)
     return tid;
   else return -1;
@@ -364,7 +385,6 @@ extract_arguments (struct intr_frame *f, int *buf, int count)
   for (int i = 0; i < count; i++) 
   {
     uint32_t *current_addr = user_ptr + i;
-    validate_user_address ((void *)current_addr);
     validate_user_address ((void *)current_addr);
     buf[i] = *user_ptr;
     user_ptr++;

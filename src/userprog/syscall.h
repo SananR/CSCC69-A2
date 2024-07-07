@@ -6,6 +6,8 @@
 void syscall_init (void);
 
 /* System call handlers */
+
+int wait (tid_t tid);
 void seek (int fd, unsigned position);
 unsigned tell (int fd);
 int filesize (int fd);
