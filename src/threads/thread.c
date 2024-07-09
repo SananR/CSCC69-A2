@@ -209,11 +209,15 @@ thread_create (const char *name, int priority,
   /* Add thread to current thread's child list */
   list_init(&t->child_list);
   struct child_process *cp = malloc(sizeof(struct child_process));
+  if (cp == NULL)
+    return TID_ERROR;
   cp->parent = thread_current ();
   sema_init (&cp->loading_sema, 0);
   sema_init (&cp->waiting_sema, 0);
+  sema_init (&cp->start_sema, 0);
   cp->load_status = LOADING;
   cp->tid = tid;
+  cp->waited_on = false;
   list_push_front (&curr->child_list, &cp->elem);
   t->cp = cp;
 

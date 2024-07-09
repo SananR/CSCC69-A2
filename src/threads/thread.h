@@ -54,6 +54,7 @@ struct child_process
     int exit_status;                           /* The status of the process after exiting */
     struct semaphore waiting_sema;             /* Semaphore used when waiting on a child process with process_wait */
     struct semaphore loading_sema;             /* Semaphore used to ensure proper synchronization while loading child process */
+    struct semaphore start_sema;
     enum userprog_loading_status load_status;  /* Whether or not the process failed to load the user program */
   };
 

@@ -251,6 +251,11 @@ open (const char *file)
     return -1;
   }
   struct process_file *pf = malloc(sizeof(struct process_file));
+  if (pf == NULL)
+  {
+    free(open_file);
+    return -1;
+  }
   pf->file = open_file;
   pf->fd = thread_current ()->fd_inc++;
   list_push_front (&thread_current()->open_files, &pf->elem);
@@ -313,8 +318,7 @@ exit (int status)
   struct thread *cur = thread_current();
   printf("%s: exit(%d)\n", cur->name, status);
   cur->cp->exit_status = status;
-  if (cur->cp->parent)
-    sema_up (&cur->cp->waiting_sema);
+  sema_up (&cur->cp->waiting_sema);
   thread_exit ();
 }
 
@@ -336,11 +340,13 @@ exec (const char *cmd_line)
   // Block while the process is still loading
   if (child->load_status == LOADING) 
   {
-    sema_try_down (&child->loading_sema);
+    sema_down (&child->loading_sema);
   }
   enum userprog_loading_status status = child->load_status;
   if (status == LOAD_SUCCESS)
+  {
     return tid;
+  }
   else 
     return -1;
 }
