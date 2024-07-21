@@ -1,13 +1,20 @@
-#include "page.h"
+#include "vm/page.h"
 #include <hash.h>
+#include <string.h>
+#include "threads/palloc.h"
+#include "userprog/process.h"
+#include "filesys/file.h"
+#include "threads/malloc.h"
+#include "filesys/filesys.h"
+#include "threads/vaddr.h"
 
 
 /* Returns a hash value for virtual memory entry. */
 unsigned
 virtual_memory_entry_hash (const struct hash_elem *p_, void *aux UNUSED)
 {
-  const struct page *p = hash_entry (p_, struct virtual_memory_entry, hash_elem);
-  return hash_bytes (&p->uaddr, sizeof p->uaddr);
+  const struct virtual_memory_entry *vm_entry = hash_entry (p_, struct virtual_memory_entry, hash_elem);
+  return hash_bytes (&vm_entry->uaddr, sizeof vm_entry->uaddr);
 }
 
 /* Returns true if virtual memory entry a precedes virtual memory entry b. */
@@ -21,16 +28,24 @@ virtual_memory_entry_less (const struct hash_elem *a_, const struct hash_elem *b
   return a->uaddr < b->uaddr;
 }
 
+void
+virtual_memory_destroy (struct hash_elem *e, void *aux UNUSED)
+{
+  struct virtual_memory_entry *a = hash_entry (e, struct virtual_memory_entry, hash_elem);
+  free(a);
+}
+
+
 struct virtual_memory_entry *
 find_vm_entry (uint8_t *uaddr)
 {
   struct hash *vm = &thread_current()->virtual_memory;
   struct hash_elem *e;
-  struct virtual_memory_entry *vm_entry;
+  struct virtual_memory_entry vm_entry;
 
-  vm_entry.uaddr = uaddr;
-  e = hash_find (&vm, &vm_entry.hash_elem);
-  return e != NULL ? hash_entry (e, struct page, hash_elem) : NULL;
+  vm_entry.uaddr = pg_round_down (uaddr);
+  e = hash_find (vm, &vm_entry.hash_elem);
+  return e != NULL ? hash_entry (e, struct virtual_memory_entry, hash_elem) : NULL;
 }
 
 
@@ -77,4 +92,5 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry)
   {
   	return true;
   }
+  return false;
 }

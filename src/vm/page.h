@@ -1,3 +1,9 @@
+#ifndef VM_PAGE_H
+#define VM_PAGE_H
+
+#include "filesys/off_t.h"
+#include <hash.h>
+#include <stdbool.h>
 
 /* States in a thread's life cycle. */
 enum virtual_memory_type
@@ -11,7 +17,7 @@ struct virtual_memory_entry
       uint8_t *uaddr;                       /* User virtual address of page */
   		struct hash_elem hash_elem;           /* Hash table element. */
   		unsigned vpn;                         /* Virtual page number */
-      virtual_memory_type *page_type;       /* The virtual memory type, either file page or a swap page */
+      enum virtual_memory_type page_type;   /* The virtual memory type, either file page or a swap page */
 
       struct file *file;                    /* Reference to the user file */
       uint32_t read_bytes;                  /* Number of read bytes for loading the file */
@@ -23,5 +29,11 @@ struct virtual_memory_entry
   };
 
 
-bool virtual_memory_entry_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
-unsigned virtual_memory_entry_hash (const struct hash_elem *p_, void *aux UNUSED);
+bool virtual_memory_entry_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux);
+unsigned virtual_memory_entry_hash (const struct hash_elem *p_, void *aux);
+void virtual_memory_destroy (struct hash_elem *e, void *aux);
+
+struct virtual_memory_entry *find_vm_entry (uint8_t *uaddr);
+bool handle_vm_page_fault (struct virtual_memory_entry *vm_entry);
+
+#endif /* vm/page.h */

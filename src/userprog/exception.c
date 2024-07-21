@@ -5,6 +5,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "vm/page.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -149,18 +150,17 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-   // Page fault in the kernel.
+  // Page fault in the kernel.
   if (!user) {
     f->eip = (void *) f->eax;  // Copy the former value of eip into eip.
     f->eax = 0xffffffff;  // Set eax to 0xffffffff.
     return;
   }
 
-  // Validate address
-  if (!is_user_vaddr (fault_addr))
+  // Validation
+  if (!is_user_vaddr (fault_addr) || !not_present)
   {
    kill (f);
-   return;
   }
   /* Check to see if the virtual address is stored in virtual memory table */
   struct virtual_memory_entry *vm_entry = find_vm_entry (fault_addr);
@@ -170,14 +170,17 @@ page_fault (struct intr_frame *f)
   if (vm_entry == NULL)
   {
    kill (f);
-   return;
   }
 
   /* Found a virtual memory entry for this address, pass it off to the virtual memory fault handler */
   if (!handle_vm_page_fault (vm_entry))
   {
+   printf ("Page fault at %p: %s error %s page in %s context.\n",
+         fault_addr,
+         not_present ? "not present" : "rights violation",
+         write ? "writing" : "reading",
+         user ? "user" : "kernel");
    kill (f);
-   return;
   }
 }
 
