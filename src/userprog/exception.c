@@ -4,6 +4,7 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -155,14 +156,28 @@ page_fault (struct intr_frame *f)
     return;
   }
 
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+  // Validate address
+  if (!is_user_vaddr (fault_addr))
+  {
+   kill (f);
+   return;
+  }
+  /* Check to see if the virtual address is stored in virtual memory table */
+  struct virtual_memory_entry *vm_entry = find_vm_entry (fault_addr);
+
+  // No entry found, this is an invalid access 
+  // TODO STACK GROWTH
+  if (vm_entry == NULL)
+  {
+   kill (f);
+   return;
+  }
+
+  /* Found a virtual memory entry for this address, pass it off to the virtual memory fault handler */
+  if (!handle_vm_page_fault (vm_entry))
+  {
+   kill (f);
+   return;
+  }
 }
 

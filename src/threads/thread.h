@@ -137,6 +137,8 @@ struct thread
     struct child_process *cp;                  /* A reference to child_process struct state */
     int fd_inc;                                /* An incrementer for file descriptors       */
     struct file *exec;                         /* Reference to the executable file running  */
+
+    struct hash virtual_memory;                /* A hash table representing the set of virtual memory entries */
 #endif
 
     /* Owned by thread.c. */
