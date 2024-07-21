@@ -49,9 +49,11 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry)
   	if (kpage == NULL)
     	return false;
 
+  	struct file *file = vm_entry->file;
     size_t page_read_bytes = vm_entry->read_bytes;
     size_t page_zero_bytes = vm_entry->zero_bytes;
-    
+
+    file_seek (file, vm_entry->ofs);
     /* Load this page. */
     if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
     {
