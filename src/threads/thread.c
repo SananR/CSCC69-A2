@@ -12,6 +12,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "malloc.h"
+#include "vm/frame.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/syscall.h"
@@ -95,6 +96,9 @@ thread_init (void)
   lock_init (&file_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  
+  // Initialize frame/page allocator 
+  initialize_lru_list ();
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();

@@ -33,18 +33,6 @@ get_user (const uint8_t *uaddr)
        : "=&a" (result) : "m" (*uaddr));
   return result;
 }
- 
-/* Writes BYTE to user address UDST.
-   UDST must be below PHYS_BASE.
-   Returns true if successful, false if a segfault occurred. */
-static bool
-put_user (uint8_t *udst, uint8_t byte)
-{
-  int error_code;
-  asm ("movl $1f, %0; movb %b2, %1; 1:"
-       : "=&a" (error_code), "=m" (*udst) : "q" (byte));
-  return error_code != -1;
-}
 
 static void
 copy_in (void *dst_, const void *usrc_, size_t size)
@@ -65,6 +53,9 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+  // Save user stack pointer to handle kernel page fault stack growth
+  thread_current()->user_esp = f->esp;
+  
   unsigned syscall_number;
   int args[USER_PROCESS_MAXIMUM_ARGUMENTS];
 

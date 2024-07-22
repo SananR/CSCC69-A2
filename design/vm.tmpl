@@ -29,6 +29,42 @@ Sanan Rao sanan.rao@mail.utoronto.ca
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+/* The type of the virtual memory entry */
+enum virtual_memory_type
+  {
+    FILE_PAGE,
+    SWAP_PAGE
+  };
+
+struct virtual_memory_entry
+  {
+      uint8_t *uaddr;                       /* User virtual address of page */
+        struct hash_elem hash_elem;         /* Hash table element. */
+      enum virtual_memory_type page_type;   /* The virtual memory type, either file page or a swap page */
+
+      struct file *file;                    /* Reference to the user file */
+      uint32_t read_bytes;                  /* Number of read bytes for loading the file */
+      uint32_t zero_bytes;                  /* Number of zeroed bytes for loading the file */
+      off_t ofs;                            /* Offset for reading the file */
+
+      bool writable;                        /* Whether this frame can be written to */
+      bool in_memory;                       /* Whether this frame is in memory */
+  };
+
+struct thread
+  {
+    ...
+
+#ifdef USERPROG
+    ...
+
+    struct hash virtual_memory;                /* A hash table representing the set of virtual memory entries */
+    void *user_esp;                            /* Reference to user stack pointer, used to handle kernel stack growth */
+#endif
+    ...
+  };
+
+
 ---- ALGORITHMS ----
 
 >> A2: In a few paragraphs, describe your code for accessing the data
@@ -69,6 +105,12 @@ Sanan Rao sanan.rao@mail.utoronto.ca
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
 >> the page that faulted.
+
+The heuristic is to simply check that the faulting address was above
+32 bytes below of the user stack top (esp). In the case that the page 
+fault occurs in kernel context (system calls for example), we store the 
+user esp inside of the thread struct and reference it inside of the page
+fault. 
 
 ---- SYNCHRONIZATION ----
 

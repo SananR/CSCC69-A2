@@ -140,6 +140,7 @@ struct thread
     struct file *exec;                         /* Reference to the executable file running  */
 
     struct hash virtual_memory;                /* A hash table representing the set of virtual memory entries */
+    void *user_esp;                            /* Reference to user stack pointer, used to handle kernel stack growth */
 #endif
 
     /* Owned by thread.c. */

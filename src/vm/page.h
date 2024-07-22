@@ -5,7 +5,7 @@
 #include <hash.h>
 #include <stdbool.h>
 
-/* States in a thread's life cycle. */
+/* The type of the virtual memory entry */
 enum virtual_memory_type
   {
     FILE_PAGE,
@@ -16,7 +16,6 @@ struct virtual_memory_entry
   {
       uint8_t *uaddr;                       /* User virtual address of page */
   		struct hash_elem hash_elem;           /* Hash table element. */
-  		unsigned vpn;                         /* Virtual page number */
       enum virtual_memory_type page_type;   /* The virtual memory type, either file page or a swap page */
 
       struct file *file;                    /* Reference to the user file */
@@ -35,5 +34,8 @@ void virtual_memory_destroy (struct hash_elem *e, void *aux);
 
 struct virtual_memory_entry *find_vm_entry (uint8_t *uaddr);
 bool handle_vm_page_fault (struct virtual_memory_entry *vm_entry);
+
+bool is_stack_grow_access (void *addr, uint32_t *esp);
+bool create_stack_entry (void *addr);
 
 #endif /* vm/page.h */
