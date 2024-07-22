@@ -51,12 +51,34 @@ allocate_frame (struct virtual_memory_entry *vm_entry, enum palloc_flags flag)
   	return kpage;
 }
 
-bool
+// void 
+// free_all_frames (struct thread *t)
+// {
+// 	struct list_elem *e;
+
+// 	for (e = list_begin (&lru_list); e != list_end (&lru_list); e = list_next (e))
+// 	{
+// 		struct frame *fm = list_entry (e, struct frame, elem);
+// 		if (fm->owner == t)
+// 		{
+// 			list_remove (&fm->elem);
+// 			palloc_free_page (fm->page);
+// 			free (fm);
+// 		}
+// 	}
+// }
+
+void
 free_frame (struct virtual_memory_entry *vm_entry)
 {
 	struct frame *fm = find_frame (vm_entry);
 	if (fm == NULL) 
-		return false;
+		return;
+	// // If frame was loaded in memory then clear the pagedir entry
+	// if (vm_entry->in_memory)
+	// {
+	// 	pagedir_clear_page (fm->owner->pagedir, fm->page);
+	// }
 	list_remove (&fm->elem);
 	palloc_free_page (fm->page);
 	free (fm);

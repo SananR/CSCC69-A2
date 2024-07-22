@@ -14,6 +14,7 @@ struct frame
 
 void initialize_lru_list ();
 uint8_t *allocate_frame (struct virtual_memory_entry *vm_entry, enum palloc_flags flag);
-bool free_frame (struct virtual_memory_entry *vm_entry);
+void free_frame (struct virtual_memory_entry *vm_entry);
+void free_all_frames (struct thread *t);
 
 #endif /* vm/frame.h */
