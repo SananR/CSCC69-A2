@@ -236,7 +236,7 @@ mmap (int fd, void *addr)
   off_t ofs = 0;
   zero_bytes = zero_bytes == PGSIZE ? 0 : zero_bytes;
 
-  if (!load_segment (f, ofs, (uint8_t *) addr, read_bytes, zero_bytes, true, map_id))
+  if (!create_file_page (addr, f, read_bytes, zero_bytes, ofs, true, map_id))
     return -1;
   else return map_id;
 }

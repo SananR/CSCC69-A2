@@ -166,7 +166,7 @@ page_fault (struct intr_frame *f)
 
   if (vm_entry == NULL && is_stack_grow_access (fault_addr, esp))
   {
-   if (!create_stack_entry (fault_addr))
+   if (create_swap_page_entry (fault_addr) == NULL)
      goto done;
    else success = true;
   }

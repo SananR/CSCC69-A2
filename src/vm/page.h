@@ -4,6 +4,7 @@
 #include "filesys/off_t.h"
 #include <hash.h>
 #include <stdbool.h>
+#include "userprog/syscall.h"
 
 /* The type of the virtual memory entry */
 enum virtual_memory_type
@@ -38,6 +39,8 @@ void clear_vm_entry (struct virtual_memory_entry *vm_entry);
 bool handle_vm_page_fault (struct virtual_memory_entry *vm_entry);
 
 bool is_stack_grow_access (void *addr, uint32_t *esp);
-bool create_stack_entry (void *addr);
+struct virtual_memory_entry *create_swap_page_entry (void *addr);
+bool create_file_page (void *upage, struct file *file, uint32_t read_bytes,
+             uint32_t zero_bytes, off_t ofs, bool writable, mapid_t map_id);
 
 #endif /* vm/page.h */

@@ -43,7 +43,7 @@ clear_vm_entry (struct virtual_memory_entry *vm_entry)
 {
   // Clear from virtual memory hash table 
   hash_delete (&thread_current ()->virtual_memory, &vm_entry->hash_elem);
-  
+
   free_frame (vm_entry);
   free (vm_entry);
 }
@@ -124,8 +124,8 @@ is_stack_grow_access (void *addr, uint32_t *esp)
   else return false;
 }
 
-bool
-create_stack_entry (void *addr)
+struct virtual_memory_entry *
+create_swap_page_entry (void *addr)
 {
   struct virtual_memory_entry *vm_entry = malloc(sizeof(struct virtual_memory_entry));
   if (vm_entry == NULL)
@@ -141,7 +141,7 @@ create_stack_entry (void *addr)
   if (kpage == NULL)
   {
     free (vm_entry);
-    return false;
+    return NULL;
   }
 
   bool success = install_page (vm_entry->uaddr, kpage, true);
@@ -149,15 +149,75 @@ create_stack_entry (void *addr)
   {
     free_frame (vm_entry);
     free (vm_entry);
-    return false;
+    return NULL;
   }
 
   hash_insert (&thread_current()->virtual_memory, &vm_entry->hash_elem);
 
-  return true;
+  return vm_entry;
 }
 
+bool
+create_file_page (void *upage, struct file *file, uint32_t read_bytes,
+             uint32_t zero_bytes, off_t ofs, bool writable, mapid_t map_id)
+{
+  ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
+  ASSERT (pg_ofs (upage) == 0);
+  ASSERT (ofs % PGSIZE == 0);
 
+  struct mmap_file *mfile = NULL;
+
+  // Create and add mmap_file entry if this is for memory mapped file
+  if (map_id >= 0)
+  {
+    mfile = malloc (sizeof (struct mmap_file));
+    if (mfile == NULL)
+      return false;
+    mfile->map_id = map_id;
+    list_init (&mfile->vm_entries);
+    list_push_back (&thread_current ()->mmap_list, &mfile->elem);
+  }
+
+  while (read_bytes > 0 || zero_bytes > 0) 
+  {
+    /* Calculate how to fill this page.
+       We will read PAGE_READ_BYTES bytes from FILE
+       and zero the final PAGE_ZERO_BYTES bytes. */
+    size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+    size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+    /* Create and initialize virtual memory entry */
+    struct virtual_memory_entry *vm_entry = malloc(sizeof(struct virtual_memory_entry));
+
+    if (vm_entry == NULL) 
+      return false;
+    
+    vm_entry->uaddr = upage;
+    vm_entry->file = file;
+    vm_entry->read_bytes = page_read_bytes;
+    vm_entry->zero_bytes = page_zero_bytes;
+    vm_entry->ofs = ofs;
+    vm_entry->writable = writable;
+    vm_entry->in_memory = false;
+    vm_entry->page_type = FILE_PAGE;
+
+    // Add vm_entry to virtual memory hash table
+    hash_insert (&thread_current()->virtual_memory, &vm_entry->hash_elem);
+
+    // Add entries to mmap_file for memory mapped files 
+    if (mfile != NULL)
+    {
+      list_push_back (&mfile->vm_entries, &vm_entry->list_elem);
+    }
+
+    /* Advance. */
+    read_bytes -= page_read_bytes;
+    zero_bytes -= page_zero_bytes;
+    upage += PGSIZE;
+    ofs += PGSIZE;
+  }
+  return true;
+}
 
 
 
