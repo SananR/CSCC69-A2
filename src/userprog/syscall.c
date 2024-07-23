@@ -456,6 +456,19 @@ exec (const char *cmd_line)
  Utilities / Helpers
 */
 
+void 
+munmap_all ()
+{
+  struct list *mmap_list = &thread_current ()->mmap_list;
+  struct list_elem *e = list_begin(mmap_list);
+
+  for (e = list_begin (mmap_list); e != list_end (mmap_list); e = list_next (e))
+  {
+    struct mmap_file *mfile = list_entry (e, struct mmap_file, elem);
+    munmap (mfile->map_id);
+  }
+}
+
 void
 validate_user_string (char *str) 
 {

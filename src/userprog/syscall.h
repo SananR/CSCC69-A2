@@ -26,4 +26,7 @@ tid_t exec (const char *cmd_line);
 mapid_t mmap (int fd, void *addr);
 void munmap (mapid_t mapping);
 
+/* Utility */
+void munmap_all (void);
+
 #endif /* userprog/syscall.h */
