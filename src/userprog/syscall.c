@@ -171,7 +171,6 @@ munmap (mapid_t mapping)
         {
           file_seek (vm_entry->file, 0);
           file_write_at (vm_entry->file, vm_entry->uaddr, vm_entry->read_bytes, vm_entry->ofs);
-          //file_write (vm_entry->file, vm_entry->uaddr, vm_entry->read_bytes);
         }
         // Clear the virtual memory entry and corresponding mmap entry
         clear_vm_entry (vm_entry);
@@ -204,7 +203,12 @@ mmap (int fd, void *addr)
     lock_release (&file_lock);
     return -1;
   }
-  struct file *f = pf->file;
+  struct file *f = file_reopen (pf->file);
+  if (f == NULL)
+  {
+    lock_release (&file_lock);
+    return -1;
+  }
   off_t filesize = file_length(f);
 
   // File 0 length
@@ -214,11 +218,6 @@ mmap (int fd, void *addr)
     return -1;
   }
   lock_release (&file_lock);
-
-  // Validate the user address
-  // for (unsigned i=0; i < (unsigned) filesize; i++)
-  //   if (is_kernel_vaddr (addr+i) || get_user (addr+i) == -1)
-  //     return -1; 
 
   int num_pages = (filesize / PGSIZE) + ((filesize % PGSIZE) != 0); // Ceil of (filesize / PGSIZE)
 
