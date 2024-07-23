@@ -59,6 +59,14 @@ struct child_process
     enum userprog_loading_status load_status;  /* Whether or not the process failed to load the user program */
   };
 
+typedef int mapid_t;
+/* State information regarding a memory mapped file */
+struct mmap_file
+  {
+    mapid_t map_id;                            /* Mapping id */
+    struct list vm_entries;                    /* List of corresponding VM entries */
+    struct list_elem elem;                     /* List elem for mmap_list */
+  };
 
 /* A kernel thread or user process.
 
@@ -141,6 +149,8 @@ struct thread
 
     struct hash virtual_memory;                /* A hash table representing the set of virtual memory entries */
     void *user_esp;                            /* Reference to user stack pointer, used to handle kernel stack growth */
+    struct list mmap_list;                     /* List of memory mapped files */ 
+    int map_id;                                /* Incrementor for map ids */
 #endif
 
     /* Owned by thread.c. */

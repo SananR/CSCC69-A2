@@ -12,6 +12,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "process.h"
+#include "vm/page.h"
 
 #define USER_PROCESS_MAXIMUM_ARGUMENTS 5
 
@@ -55,7 +56,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   // Save user stack pointer to handle kernel page fault stack growth
   thread_current()->user_esp = f->esp;
-  
+
   unsigned syscall_number;
   int args[USER_PROCESS_MAXIMUM_ARGUMENTS];
 
@@ -126,12 +127,68 @@ syscall_handler (struct intr_frame *f UNUSED)
       extract_arguments (f, args, 1);
       f->eax = wait ((tid_t) args[0]);
       break;
+    case SYS_MMAP:
+      extract_arguments (f, args, 2);
+      f->eax = mmap ((int) args[0], (void *)args[1]);
+      break;
   }
 }
 
 /*
   System call handlers
 */
+
+mapid_t
+mmap (int fd, void *addr)
+{
+  // Invalid arguments
+  if (addr == (void *)0 || addr == NULL || fd == 1 || fd == 1)
+    return -1;
+  // Not page aligned or not a user address
+  else if (!is_user_vaddr (addr) || (int)addr % PGSIZE != 0)
+    return -1;
+
+  lock_acquire (&file_lock);
+  struct process_file *pf = get_process_file (fd);
+  // File not opened 
+  if (pf == NULL)
+  {
+    lock_release (&file_lock);
+    return -1;
+  }
+  struct file *f = pf->file;
+  off_t filesize = file_length(f);
+
+  // File 0 length
+  if (filesize <= 0)
+  {
+    lock_release (&file_lock);
+    return -1;
+  }
+  lock_release (&file_lock);
+
+  int t = (int)(filesize / PGSIZE);
+  int num_pages = t == (filesize / PGSIZE) ? t : t + 1;
+
+  // Check if any of the pages at addr are already mapped 
+  for (int i=0; i<num_pages; i++)
+  {
+    void *page = addr + (PGSIZE * i);
+    struct virtual_memory_entry *vm_entry = find_vm_entry ((uint8_t *)page);
+    if (vm_entry != NULL)
+      return -1;
+  }
+
+  mapid_t map_id = thread_current ()->map_id++;
+  uint32_t read_bytes = filesize;
+  uint32_t zero_bytes = filesize <= PGSIZE ? PGSIZE - filesize : PGSIZE - (filesize % PGSIZE);
+  off_t ofs = 0;
+  zero_bytes = zero_bytes == PGSIZE ? 0 : zero_bytes;
+
+  if (!load_segment (f, ofs, (uint8_t *) addr, read_bytes, zero_bytes, true, map_id))
+    return -1;
+  else return map_id;
+}
 
 int
 wait (tid_t tid)
@@ -217,7 +274,8 @@ filesize (int fd)
 void
 close (int fd)
 {
-  lock_acquire (&file_lock);
+  if (!lock_held_by_current_thread (&file_lock))
+    lock_acquire (&file_lock);
   struct process_file *pf = get_process_file (fd);
   if (!pf)
   {
@@ -245,6 +303,7 @@ open (const char *file)
   if (pf == NULL)
   {
     free(open_file);
+    lock_release (&file_lock);
     return -1;
   }
   pf->file = open_file;

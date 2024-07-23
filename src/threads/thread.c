@@ -495,6 +495,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->fd_inc = 2;
   t->exec = NULL;
   list_init (&t->open_files);
+  list_init (&t->mmap_list);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

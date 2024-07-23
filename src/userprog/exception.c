@@ -150,55 +150,31 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  // Page fault in the kernel.
-  // if (!user) {
-  //   f->eip = (void *) f->eax;  // Copy the former value of eip into eip.
-  //   f->eax = 0xffffffff;  // Set eax to 0xffffffff.
-  //   return;
-  // }
-
   void *esp = user ? f->esp : thread_current()->user_esp;
   bool success = false;
 
-  //printf("fault\n");
   // Validation
   if (!is_user_vaddr (fault_addr) || !not_present)
-  {
-   //kill (f);
-   goto done;
-  }
-  //printf("fault passed validation\n");
+    goto done;
+  
   /* Check to see if the virtual address is stored in virtual memory table */
   struct virtual_memory_entry *vm_entry = find_vm_entry (fault_addr);
 
-  // // Handle case of writing to a read only page
+  // Handle writing to read only file
   // if (write && vm_entry != NULL && !vm_entry->writable)
-  // {
-  //  kill (f);
-  // }
+  //  goto done;
 
   if (vm_entry == NULL && is_stack_grow_access (fault_addr, esp))
   {
    if (!create_stack_entry (fault_addr))
-   {
-      //kill (f);
-      goto done;
-   }
+     goto done;
    else success = true;
   }
   /* Found a virtual memory entry for this address, pass it off to the virtual memory fault handler */
   else if (vm_entry != NULL)
   {
     if (!handle_vm_page_fault (vm_entry))
-    {
-     goto done;
-     printf ("Page fault at %p: %s error %s page in %s context.\n",
-         fault_addr,
-         not_present ? "not present" : "rights violation",
-         write ? "writing" : "reading",
-         user ? "user" : "kernel");
-     kill (f);
-    } 
+      goto done;
     else success = true;
   }
   done:

@@ -16,6 +16,7 @@ struct virtual_memory_entry
   {
       uint8_t *uaddr;                       /* User virtual address of page */
   		struct hash_elem hash_elem;           /* Hash table element. */
+      struct list_elem list_elem;           /* List element used for memory mapped files */
       enum virtual_memory_type page_type;   /* The virtual memory type, either file page or a swap page */
 
       struct file *file;                    /* Reference to the user file */
