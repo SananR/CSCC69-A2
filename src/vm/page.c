@@ -3,6 +3,7 @@
 #include <string.h>
 #include "threads/palloc.h"
 #include "userprog/process.h"
+#include "userprog/pagedir.h"
 #include "filesys/file.h"
 #include "threads/malloc.h"
 #include "filesys/filesys.h"
@@ -37,6 +38,17 @@ virtual_memory_destroy (struct hash_elem *e, void *aux UNUSED)
   free(a);
 }
 
+void 
+clear_vm_entry (struct virtual_memory_entry *vm_entry)
+{
+  // Clear from virtual memory hash table 
+  hash_delete (&thread_current ()->virtual_memory, &vm_entry->hash_elem);
+  // Clear from the page directory so the page may be used by another process
+  pagedir_clear_page (thread_current ()->pagedir, vm_entry->uaddr);
+
+  free_frame (vm_entry);
+  free (vm_entry);
+}
 
 struct virtual_memory_entry *
 find_vm_entry (uint8_t *uaddr)

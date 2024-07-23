@@ -13,6 +13,7 @@
 #include "filesys/file.h"
 #include "process.h"
 #include "vm/page.h"
+#include "userprog/pagedir.h"
 
 #define USER_PROCESS_MAXIMUM_ARGUMENTS 5
 
@@ -131,12 +132,59 @@ syscall_handler (struct intr_frame *f UNUSED)
       extract_arguments (f, args, 2);
       f->eax = mmap ((int) args[0], (void *)args[1]);
       break;
+    case SYS_MUNMAP:
+      extract_arguments (f, args, 1);
+      munmap ((mapid_t) args[0]);
+      break;
   }
 }
 
 /*
   System call handlers
 */
+
+void 
+munmap (mapid_t mapping)
+{
+  if (mapping < 0) return;
+
+  struct list *mmap_list = &thread_current ()->mmap_list;
+  struct list_elem *e = list_begin(mmap_list);
+
+  lock_acquire (&file_lock);
+  for (e = list_begin (mmap_list); e != list_end (mmap_list); e = list_next (e))
+  {
+    struct mmap_file *mfile = list_entry (e, struct mmap_file, elem);
+    // Find mmap_file entry
+    if (mfile->map_id == mapping)
+    {
+      struct list *vm_entries = &mfile->vm_entries;
+      struct list_elem *e2 = list_begin(vm_entries);
+      // Iterate all corresponding vm_entries for this mapped file 
+      while (e2 != list_end(vm_entries))
+      {
+        struct virtual_memory_entry *vm_entry = list_entry (e2, struct virtual_memory_entry, list_elem);
+        // Save the next element since we will free the current vm_entry's memory
+        struct list_elem *next = list_next(e2);
+        // Check if page was written to (dirty) and write back to file if it was
+        if (pagedir_is_dirty (thread_current ()->pagedir, vm_entry->uaddr))
+        {
+          file_seek (vm_entry->file, 0);
+          file_write_at (vm_entry->file, vm_entry->uaddr, vm_entry->read_bytes, vm_entry->ofs);
+          //file_write (vm_entry->file, vm_entry->uaddr, vm_entry->read_bytes);
+        }
+        // Clear the virtual memory entry and corresponding mmap entry
+        clear_vm_entry (vm_entry);
+        e2 = next;
+      }
+      // Clear from memory mapped file list and free
+      list_remove (&mfile->elem);
+      free (mfile);
+      break;
+    }
+  }
+  lock_release (&file_lock);
+}
 
 mapid_t
 mmap (int fd, void *addr)
@@ -167,8 +215,12 @@ mmap (int fd, void *addr)
   }
   lock_release (&file_lock);
 
-  int t = (int)(filesize / PGSIZE);
-  int num_pages = t == (filesize / PGSIZE) ? t : t + 1;
+  // Validate the user address
+  // for (unsigned i=0; i < (unsigned) filesize; i++)
+  //   if (is_kernel_vaddr (addr+i) || get_user (addr+i) == -1)
+  //     return -1; 
+
+  int num_pages = (filesize / PGSIZE) + ((filesize % PGSIZE) != 0); // Ceil of (filesize / PGSIZE)
 
   // Check if any of the pages at addr are already mapped 
   for (int i=0; i<num_pages; i++)

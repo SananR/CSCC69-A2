@@ -24,5 +24,6 @@ int write (int fd, void *buffer, unsigned size);
 void halt (void);
 tid_t exec (const char *cmd_line);
 mapid_t mmap (int fd, void *addr);
+void munmap (mapid_t mapping);
 
 #endif /* userprog/syscall.h */

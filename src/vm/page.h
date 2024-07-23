@@ -34,6 +34,7 @@ unsigned virtual_memory_entry_hash (const struct hash_elem *p_, void *aux);
 void virtual_memory_destroy (struct hash_elem *e, void *aux);
 
 struct virtual_memory_entry *find_vm_entry (uint8_t *uaddr);
+void clear_vm_entry (struct virtual_memory_entry *vm_entry);
 bool handle_vm_page_fault (struct virtual_memory_entry *vm_entry);
 
 bool is_stack_grow_access (void *addr, uint32_t *esp);
