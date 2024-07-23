@@ -6,7 +6,7 @@
 
 struct frame
   {
-  	  uint8_t *page;							  /* Reference to the physical page address */
+  	  uint8_t *page;							                /* Reference to the physical page address */
       struct thread *owner;                       /* Reference to the owner thread/process */
   	  struct virtual_memory_entry *vm_entry;      /* Reference to the corresponding virtual memory entry */
   	  struct list_elem elem;                      /* List element for LRU list */

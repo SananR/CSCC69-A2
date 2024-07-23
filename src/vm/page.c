@@ -43,9 +43,7 @@ clear_vm_entry (struct virtual_memory_entry *vm_entry)
 {
   // Clear from virtual memory hash table 
   hash_delete (&thread_current ()->virtual_memory, &vm_entry->hash_elem);
-  // Clear from the page directory so the page may be used by another process
-  pagedir_clear_page (thread_current ()->pagedir, vm_entry->uaddr);
-
+  
   free_frame (vm_entry);
   free (vm_entry);
 }

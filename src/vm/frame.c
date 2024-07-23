@@ -4,6 +4,7 @@
 #include "threads/palloc.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
+#include "userprog/pagedir.h"
 
 /* List of allocated frames */
 static struct list lru_list;
@@ -74,11 +75,11 @@ free_frame (struct virtual_memory_entry *vm_entry)
 	struct frame *fm = find_frame (vm_entry);
 	if (fm == NULL) 
 		return;
-	// // If frame was loaded in memory then clear the pagedir entry
-	// if (vm_entry->in_memory)
-	// {
-	// 	pagedir_clear_page (fm->owner->pagedir, fm->page);
-	// }
+	// If frame was loaded in memory then clear the pagedir entry
+	if (vm_entry->in_memory)
+	{
+		pagedir_clear_page (fm->owner->pagedir, vm_entry->uaddr);
+	}
 	list_remove (&fm->elem);
 	palloc_free_page (fm->page);
 	free (fm);
