@@ -76,7 +76,7 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry, bool pin_frame)
   /* 
     Handle file page virtual memory entries 
   */
-  if (vm_entry->page_type == FILE_PAGE)
+  if (vm_entry->page_type == FILE_PAGE || vm_entry->page_type == MMAP_PAGE)
   {
     /* Get a page of memory. */
   	uint8_t *kpage = allocate_frame (vm_entry, PAL_USER);
@@ -237,7 +237,7 @@ create_file_page (void *upage, struct file *file, uint32_t read_bytes,
     vm_entry->writable = writable;
     vm_entry->in_memory = false;
     vm_entry->pinned = false;
-    vm_entry->page_type = FILE_PAGE;
+    vm_entry->page_type = map_id >= 0 ? MMAP_PAGE : FILE_PAGE;
 
     // Add vm_entry to virtual memory hash table
     hash_insert (&thread_current()->virtual_memory, &vm_entry->hash_elem);

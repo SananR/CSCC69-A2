@@ -4,6 +4,7 @@
 #include "threads/palloc.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 #include <stdlib.h>
 #include "lib/random.h"
@@ -63,23 +64,6 @@ allocate_frame (struct virtual_memory_entry *vm_entry, enum palloc_flags flag)
   	return kpage;
 }
 
-// void 
-// free_all_frames (struct thread *t)
-// {
-// 	struct list_elem *e;
-
-// 	for (e = list_begin (&lru_list); e != list_end (&lru_list); e = list_next (e))
-// 	{
-// 		struct frame *fm = list_entry (e, struct frame, elem);
-// 		if (fm->owner == t)
-// 		{
-// 			list_remove (&fm->elem);
-// 			palloc_free_page (fm->page);
-// 			free (fm);
-// 		}
-// 	}
-// }
-
 void
 free_frame (struct frame *fm)
 {
@@ -126,24 +110,22 @@ evict_frame ()
 
 	if (pagedir_is_dirty (victim->owner->pagedir, vm_entry->uaddr) && vm_entry->writable)
 	{
-		// /* Writable file pages */
-		// if (vm_entry->page_type == FILE_PAGE && vm_entry->writable)
-		// {
-		// 	// Write back to the backed file
-  		// 	lock_acquire (&file_lock);
-        //   	file_seek (vm_entry->file, 0);
-        //   	file_write_at (vm_entry->file, vm_entry->uaddr, vm_entry->read_bytes, vm_entry->ofs);
-  		// 	lock_release (&file_lock);
-		// }
-		// /* Swap pages */
-		// else if (vm_entry->page_type == SWAP_PAGE)
-		// {
+		if (vm_entry->page_type == MMAP_PAGE)
+		{
+			printf("evicting memory mapped page!\n");
+			lock_acquire (&file_lock);
+			file_seek (vm_entry->file, 0);
+      		file_write_at (vm_entry->file, vm_entry->uaddr, vm_entry->read_bytes, vm_entry->ofs);
+      		lock_release (&file_lock);
+		}
+		else
+		{
 			size_t index = memory_to_swap (vm_entry->uaddr);
 			if (index < 0)
 				return false;
 			vm_entry->swap_index = index;
 			vm_entry->page_type = SWAP_PAGE;
-		//}
+		}
 	}
 
 	// Free the victim frame
@@ -165,34 +147,46 @@ find_victim_frame ()
     	return NULL;
 	}
 
-	if (clock_hand == NULL)
-		clock_hand = list_begin (&lru_list);
+	// if (clock_hand == NULL)
+	// 	clock_hand = list_begin (&lru_list);
 
-	struct frame *victim = list_entry (clock_hand, struct frame, elem);
+	// struct frame *victim = list_entry (clock_hand, struct frame, elem);
 
 	// Clock algorithm 
-	while (pagedir_is_accessed (victim->owner->pagedir, victim->vm_entry->uaddr))
-	{
-		// Clear accessed and move hand to next
-		pagedir_set_accessed (victim->owner->pagedir, victim->vm_entry->uaddr, false);
-		clock_hand = list_next (clock_hand);
-		// If last entry, move back to start (circular)
-		if (list_tail (&lru_list) == clock_hand)
-			clock_hand = list_begin (&lru_list);
-		victim = list_entry (clock_hand, struct frame, elem);
-	}
-
+	// while (is_user_vaddr(victim->vm_entry->uaddr) && pagedir_is_accessed (victim->owner->pagedir, victim->vm_entry->uaddr))
+	// {
+	// 	//printf("start loop\n");
+	// 	// Clear accessed and move hand to next
+	// 	pagedir_set_accessed (victim->owner->pagedir, victim->vm_entry->uaddr, false);
+	// 	clock_hand = list_next (clock_hand);
+	// 	// If last entry, move back to start (circular)
+	// 	if (list_tail (&lru_list) == clock_hand)
+	// 		clock_hand = list_begin (&lru_list);
+	// 	victim = list_entry (clock_hand, struct frame, elem);
+	// 	//printf("curr victim is %p\n", victim->vm_entry->uaddr);
+	// 	while (!is_user_vaddr(victim->vm_entry->uaddr))
+	// 	{
+	// 		//printf("inner next\n");
+	// 		clock_hand = list_next (clock_hand);
+	// 		// If last entry, move back to start (circular)
+	// 		if (list_tail (&lru_list) == clock_hand)
+	// 			clock_hand = list_begin (&lru_list);
+	// 		victim = list_entry (clock_hand, struct frame, elem);
+	// 	}
+	// 	//printf("accessed value is user address: %d\n", is_user_vaddr(victim->vm_entry->uaddr));
+	// }
+	//printf("out of the while loop\n");
     // Generate a random index
-  	//size_t victim_index = random_ulong() % ls;
+  	size_t victim_index = random_ulong() % ls;
 
 	// Iterate through the list to the random index
-	// struct list_elem *e = list_begin (&lru_list);
-	// for (size_t i = 0; i < victim_index; i++) {
-	//   e = list_next (e);
-	// }
+	struct list_elem *e = list_begin (&lru_list);
+	for (size_t i = 0; i < victim_index; i++) {
+	  e = list_next (e);
+	}
 
 	// Get the frame at the random index
-	//struct frame *victim = list_entry (e, struct frame, elem);
+	struct frame *victim = list_entry (e, struct frame, elem);
 	lock_release (&lru_lock);
 	return victim;
 }

@@ -37,8 +37,6 @@ memory_to_swap (void *uaddr)
    }
    bitmap_flip (swap_bitmap, next_empty);
 
-   //printf("saving to swap at index %d", next_empty);
-
    // Write the data from user address to swap
    for (int i=0; i<8; i++)
       block_write (swap_block, (next_empty * 8) + i, (uint8_t *)uaddr + i * BLOCK_SECTOR_SIZE);
@@ -55,11 +53,7 @@ swap_to_memory (size_t swap_index, void *uaddr)
 
    // Index is not marked as used
    if (!bitmap_test (swap_bitmap, swap_index))
-   {
-      //lock_release (&swap_lock);
-      //return;
       PANIC ("Tried to swap an index into memory that isn't marked as used.");
-   }
 
    // Mark the index as used
    bitmap_flip (swap_bitmap, swap_index);

@@ -10,7 +10,8 @@
 enum virtual_memory_type
   {
     FILE_PAGE,
-    SWAP_PAGE
+    SWAP_PAGE,
+    MMAP_PAGE
   };
 
 struct virtual_memory_entry
