@@ -172,7 +172,7 @@ munmap (mapid_t mapping)
           file_seek (vm_entry->file, 0);
           file_write_at (vm_entry->file, vm_entry->uaddr, vm_entry->read_bytes, vm_entry->ofs);
         }
-        // Clear the virtual memory entry and corresponding mmap entry
+        // Clear the virtual memory entry
         clear_vm_entry (vm_entry);
         e2 = next;
       }

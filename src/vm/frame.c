@@ -5,6 +5,11 @@
 #include "threads/malloc.h"
 #include "threads/thread.h"
 #include "userprog/pagedir.h"
+#include <stdlib.h>
+#include "lib/random.h"
+#include "lib/kernel/list.h"
+#include "filesys/file.h"
+#include "swap.h"
 
 /* List of allocated frames */
 static struct list lru_list;
@@ -27,27 +32,30 @@ allocate_frame (struct virtual_memory_entry *vm_entry, enum palloc_flags flag)
   	uint8_t *kpage = palloc_get_page (flag);
 
   	if (kpage != NULL) 
+  		goto done;
+  	else if (evict_frame ())
   	{
-  		struct frame *fm = malloc(sizeof(struct frame));
-  		if (fm == NULL)
-  		{
-  			palloc_free_page (kpage);
-  			return NULL;
-  		}
-  		fm->page = kpage;
-  		fm->vm_entry = vm_entry;
-  		fm->owner = thread_current ();
+		kpage = palloc_get_page (flag);
+		goto done;
+  	}	
+	else PANIC ("Unable to evict a frame!");
+	
+  done: ;
+    struct frame *fm = malloc(sizeof(struct frame));
+	if (fm == NULL)
+	{
+		palloc_free_page (kpage);
+		return NULL;
+	}
+	fm->page = kpage;
+	fm->vm_entry = vm_entry;
+	fm->owner = thread_current ();
 
-  		//Insert into LRU List
-  		lock_acquire (&lru_lock);
-  		list_push_back (&lru_list, &fm->elem);
-  		lock_release (&lru_lock);
-  	}
-  	else
-  	{
-  		//TODO EVICTION 
-  		return NULL;
-  	}
+	//Insert into LRU List
+   	if (!lock_held_by_current_thread (&lru_lock))
+		lock_acquire (&lru_lock);
+	list_push_back (&lru_list, &fm->elem);
+	lock_release (&lru_lock);
 
   	return kpage;
 }
@@ -78,6 +86,7 @@ free_frame (struct virtual_memory_entry *vm_entry)
 	// If frame was loaded in memory then clear the pagedir entry
 	if (vm_entry->in_memory)
 	{
+		vm_entry->in_memory = false;
 		pagedir_clear_page (fm->owner->pagedir, vm_entry->uaddr);
 	}
 	list_remove (&fm->elem);
@@ -85,10 +94,72 @@ free_frame (struct virtual_memory_entry *vm_entry)
 	free (fm);
 }
 
+bool 
+evict_frame ()
+{
+	struct frame *victim = find_victim_frame ();
+	if (victim == NULL)
+		return false;
+	struct virtual_memory_entry *vm_entry = victim->vm_entry;
+
+	// TODO PINNING
+
+	if (vm_entry == NULL)
+		PANIC("Virtual memory entry does not exist for frame");
+
+	if (pagedir_is_dirty (victim->owner->pagedir, vm_entry->uaddr) && vm_entry->writable)
+	{
+		// /* Writable file pages */
+		// if (vm_entry->page_type == FILE_PAGE && vm_entry->writable)
+		// {
+		// 	// Write back to the backed file
+  		// 	lock_acquire (&file_lock);
+        //   	file_seek (vm_entry->file, 0);
+        //   	file_write_at (vm_entry->file, vm_entry->uaddr, vm_entry->read_bytes, vm_entry->ofs);
+  		// 	lock_release (&file_lock);
+		// }
+		// /* Swap pages */
+		// else if (vm_entry->page_type == SWAP_PAGE)
+		// {
+			size_t index = memory_to_swap (vm_entry->uaddr);
+			if (index < 0)
+				return false;
+			vm_entry->swap_index = index;
+			vm_entry->page_type = SWAP_PAGE;
+		//}
+	}
+
+	// Free the victim frame
+	free_frame (vm_entry);
+
+	return true;
+}
+
+// TODO Clock replacement / LRU algorithm 
 struct frame *
 find_victim_frame ()
 {
+   	if (!lock_held_by_current_thread (&lru_lock))
+		lock_acquire (&lru_lock);
+	size_t ls = list_size(&lru_list);  
+	if (ls == 0)
+	{
+		lock_release (&lru_lock);
+    	return NULL;
+	}
+    // Generate a random index
+  	size_t victim_index = random_ulong() % ls;
 
+	// Iterate through the list to the random index
+	struct list_elem *e = list_begin(&lru_list);
+	for (size_t i = 0; i < victim_index; i++) {
+	  e = list_next(e);
+	}
+
+	// Get the frame at the random index
+	struct frame *victim = list_entry(e, struct frame, elem);
+	lock_release (&lru_lock);
+	return victim;
 }
 
 struct frame *

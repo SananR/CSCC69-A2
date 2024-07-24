@@ -9,6 +9,7 @@
 #include "filesys/filesys.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
+#include "swap.h"
 
 #define PROCESS_MAXIMUM_STACK_SIZE 8000000 // 8 MB
 
@@ -82,20 +83,25 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry)
   	struct file *file = vm_entry->file;
     size_t page_read_bytes = vm_entry->read_bytes;
     size_t page_zero_bytes = vm_entry->zero_bytes;
-
+    
+    lock_acquire(&file_lock);
     file_seek (file, vm_entry->ofs);
 
     /* Load this page. */
     if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
     { 
+      lock_release (&file_lock);
       free_frame (vm_entry);
       return false; 
     }
+    lock_release (&file_lock);
+    
     memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
     /* Add the page to the process's address space. */
     if (!install_page (vm_entry->uaddr, kpage, vm_entry->writable)) 
     {
+      lock_release (&file_lock);
       free_frame (vm_entry);
       return false; 
     }
@@ -104,10 +110,25 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry)
 
   	return true;
   }
-  // TODO SWAP PAGE Handler
   else if (vm_entry->page_type == SWAP_PAGE)
   {
-  	return true;
+    /* Get a page of memory. */
+    uint8_t *kpage = allocate_frame (vm_entry, PAL_USER);
+
+    if (kpage == NULL)
+      return false;
+
+    /* Add the page to the process's address space. */
+    if (!install_page (vm_entry->uaddr, kpage, vm_entry->writable)) 
+    {
+      free_frame (vm_entry);
+      return false; 
+    }
+
+    // Load data from swap
+    swap_to_memory (vm_entry->swap_index, vm_entry->uaddr);
+    vm_entry->in_memory = true;
+    return true;
   }
   return false;
 }

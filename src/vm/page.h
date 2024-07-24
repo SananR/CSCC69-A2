@@ -25,6 +25,8 @@ struct virtual_memory_entry
       uint32_t zero_bytes;                  /* Number of zeroed bytes for loading the file */
       off_t ofs;                            /* Offset for reading the file */
 
+      size_t swap_index;                    /* Index of the stored swap page */
+
       bool writable;                        /* Whether this frame can be written to */
       bool in_memory;                       /* Whether this frame is in memory */
   };
