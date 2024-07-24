@@ -79,6 +79,11 @@ struct thread
 >> A4: When two user processes both need a new frame at the same time,
 >> how are races avoided?
 
+* I use a global "lru_lock" for the lru_list which contains a list of
+all allocated frames. When we are allocating a new frame, or freeing 
+an already allocated frame, we use the lock before accessing the 
+lru_list.
+
 ---- RATIONALE ----
 
 >> A5: Why did you choose the data structure(s) that you did for

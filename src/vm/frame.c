@@ -15,6 +15,7 @@
 static struct list lru_list;
 /* Lock for lru list. */
 static struct lock lru_lock;
+static struct list_elem *clock_hand; 
 
 
 struct frame *find_frame (struct virtual_memory_entry *vm_entry);
@@ -24,6 +25,7 @@ initialize_lru_list ()
 {
 	list_init (&lru_list);
 	lock_init (&lru_lock);
+	clock_hand = NULL;
 } 
 
 uint8_t *
@@ -50,6 +52,7 @@ allocate_frame (struct virtual_memory_entry *vm_entry, enum palloc_flags flag)
 	fm->page = kpage;
 	fm->vm_entry = vm_entry;
 	fm->owner = thread_current ();
+	//fm->pinned = false;
 
 	//Insert into LRU List
    	if (!lock_held_by_current_thread (&lru_lock))
@@ -78,31 +81,45 @@ allocate_frame (struct virtual_memory_entry *vm_entry, enum palloc_flags flag)
 // }
 
 void
-free_frame (struct virtual_memory_entry *vm_entry)
+free_frame (struct frame *fm)
 {
-	struct frame *fm = find_frame (vm_entry);
+	//struct frame *fm = find_frame (vm_entry);
 	if (fm == NULL) 
 		return;
 	// If frame was loaded in memory then clear the pagedir entry
-	if (vm_entry->in_memory)
+	if (fm->vm_entry->in_memory)
 	{
-		vm_entry->in_memory = false;
-		pagedir_clear_page (fm->owner->pagedir, vm_entry->uaddr);
+		fm->vm_entry->in_memory = false;
+		pagedir_clear_page (fm->owner->pagedir, fm->vm_entry->uaddr);
 	}
 	list_remove (&fm->elem);
 	palloc_free_page (fm->page);
 	free (fm);
 }
 
+void
+free_vm_frame (struct virtual_memory_entry *vm_entry)
+{
+	struct frame *fm = find_frame (vm_entry);
+	free_frame (fm);
+}
+
 bool 
 evict_frame ()
 {
 	struct frame *victim = find_victim_frame ();
+
 	if (victim == NULL)
 		return false;
+
 	struct virtual_memory_entry *vm_entry = victim->vm_entry;
 
-	// TODO PINNING
+	/* Do not evict pinned frames */
+	while (vm_entry->pinned)
+	{
+		victim = find_victim_frame ();
+		vm_entry = victim->vm_entry;
+	}
 
 	if (vm_entry == NULL)
 		PANIC("Virtual memory entry does not exist for frame");
@@ -130,7 +147,7 @@ evict_frame ()
 	}
 
 	// Free the victim frame
-	free_frame (vm_entry);
+	free_frame (victim);
 
 	return true;
 }
@@ -147,17 +164,35 @@ find_victim_frame ()
 		lock_release (&lru_lock);
     	return NULL;
 	}
-    // Generate a random index
-  	size_t victim_index = random_ulong() % ls;
 
-	// Iterate through the list to the random index
-	struct list_elem *e = list_begin(&lru_list);
-	for (size_t i = 0; i < victim_index; i++) {
-	  e = list_next(e);
+	if (clock_hand == NULL)
+		clock_hand = list_begin (&lru_list);
+
+	struct frame *victim = list_entry (clock_hand, struct frame, elem);
+
+	// Clock algorithm 
+	while (pagedir_is_accessed (victim->owner->pagedir, victim->vm_entry->uaddr))
+	{
+		// Clear accessed and move hand to next
+		pagedir_set_accessed (victim->owner->pagedir, victim->vm_entry->uaddr, false);
+		clock_hand = list_next (clock_hand);
+		// If last entry, move back to start (circular)
+		if (list_tail (&lru_list) == clock_hand)
+			clock_hand = list_begin (&lru_list);
+		victim = list_entry (clock_hand, struct frame, elem);
 	}
 
+    // Generate a random index
+  	//size_t victim_index = random_ulong() % ls;
+
+	// Iterate through the list to the random index
+	// struct list_elem *e = list_begin (&lru_list);
+	// for (size_t i = 0; i < victim_index; i++) {
+	//   e = list_next (e);
+	// }
+
 	// Get the frame at the random index
-	struct frame *victim = list_entry(e, struct frame, elem);
+	//struct frame *victim = list_entry (e, struct frame, elem);
 	lock_release (&lru_lock);
 	return victim;
 }

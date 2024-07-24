@@ -19,6 +19,7 @@ struct virtual_memory_entry
   		struct hash_elem hash_elem;           /* Hash table element. */
       struct list_elem list_elem;           /* List element used for memory mapped files */
       enum virtual_memory_type page_type;   /* The virtual memory type, either file page or a swap page */
+      bool pinned;                          /* Pinning mechanism used to prevent page faults in kernel */
 
       struct file *file;                    /* Reference to the user file */
       uint32_t read_bytes;                  /* Number of read bytes for loading the file */
@@ -38,7 +39,7 @@ void virtual_memory_destroy (struct hash_elem *e, void *aux);
 
 struct virtual_memory_entry *find_vm_entry (uint8_t *uaddr);
 void clear_vm_entry (struct virtual_memory_entry *vm_entry);
-bool handle_vm_page_fault (struct virtual_memory_entry *vm_entry);
+bool handle_vm_page_fault (struct virtual_memory_entry *vm_entry, bool pin_frame);
 
 bool is_stack_grow_access (void *addr, uint32_t *esp);
 struct virtual_memory_entry *create_swap_page_entry (void *addr);

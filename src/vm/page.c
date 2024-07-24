@@ -45,7 +45,7 @@ clear_vm_entry (struct virtual_memory_entry *vm_entry)
   // Clear from virtual memory hash table 
   hash_delete (&thread_current ()->virtual_memory, &vm_entry->hash_elem);
 
-  free_frame (vm_entry);
+  free_vm_frame (vm_entry);
   free (vm_entry);
 }
 
@@ -67,8 +67,12 @@ find_vm_entry (uint8_t *uaddr)
 	Returns true if successful, and false if any issues occurred. 
 */
 bool
-handle_vm_page_fault (struct virtual_memory_entry *vm_entry)
+handle_vm_page_fault (struct virtual_memory_entry *vm_entry, bool pin_frame)
 {
+  /* Pin the frame if we are in kernel context to avoid recursive page fault 
+     which leads to deadlock or trying to acquire the same lock twice */
+  if (pin_frame)
+    vm_entry->pinned = true;
   /* 
     Handle file page virtual memory entries 
   */
@@ -78,7 +82,10 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry)
   	uint8_t *kpage = allocate_frame (vm_entry, PAL_USER);
 
   	if (kpage == NULL)
+    {
+      vm_entry->pinned = false;
     	return false;
+    }
 
   	struct file *file = vm_entry->file;
     size_t page_read_bytes = vm_entry->read_bytes;
@@ -90,23 +97,25 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry)
     /* Load this page. */
     if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
     { 
+      vm_entry->pinned = false;
       lock_release (&file_lock);
-      free_frame (vm_entry);
+      free_vm_frame (vm_entry);
       return false; 
     }
     lock_release (&file_lock);
-    
+
     memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
     /* Add the page to the process's address space. */
     if (!install_page (vm_entry->uaddr, kpage, vm_entry->writable)) 
     {
-      lock_release (&file_lock);
-      free_frame (vm_entry);
+      vm_entry->pinned = false;
+      free_vm_frame (vm_entry);
       return false; 
     }
     // Mark the virtual memory entry as in-memory
     vm_entry->in_memory = true;
+    vm_entry->pinned = false;
 
   	return true;
   }
@@ -116,18 +125,24 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry)
     uint8_t *kpage = allocate_frame (vm_entry, PAL_USER);
 
     if (kpage == NULL)
+    {
+      vm_entry->pinned = false;
       return false;
+    }
 
     /* Add the page to the process's address space. */
     if (!install_page (vm_entry->uaddr, kpage, vm_entry->writable)) 
     {
-      free_frame (vm_entry);
+      vm_entry->pinned = false;
+      free_vm_frame (vm_entry);
       return false; 
     }
 
     // Load data from swap
     swap_to_memory (vm_entry->swap_index, vm_entry->uaddr);
     vm_entry->in_memory = true;
+    vm_entry->pinned = false;
+
     return true;
   }
   return false;
@@ -155,6 +170,7 @@ create_swap_page_entry (void *addr)
   vm_entry->uaddr = pg_round_down (addr);
   vm_entry->writable = true;
   vm_entry->in_memory = true;
+  vm_entry->pinned = false;
   vm_entry->page_type = SWAP_PAGE;
 
   uint8_t *kpage = allocate_frame (vm_entry, PAL_USER | PAL_ZERO);
@@ -168,7 +184,7 @@ create_swap_page_entry (void *addr)
   bool success = install_page (vm_entry->uaddr, kpage, true);
   if (!success)
   {
-    free_frame (vm_entry);
+    free_vm_frame (vm_entry);
     free (vm_entry);
     return NULL;
   }
@@ -220,6 +236,7 @@ create_file_page (void *upage, struct file *file, uint32_t read_bytes,
     vm_entry->ofs = ofs;
     vm_entry->writable = writable;
     vm_entry->in_memory = false;
+    vm_entry->pinned = false;
     vm_entry->page_type = FILE_PAGE;
 
     // Add vm_entry to virtual memory hash table

@@ -173,7 +173,7 @@ page_fault (struct intr_frame *f)
   /* Found a virtual memory entry for this address, pass it off to the virtual memory fault handler */
   else if (vm_entry != NULL)
   {
-    if (!handle_vm_page_fault (vm_entry))
+    if (!handle_vm_page_fault (vm_entry, !user))
       goto done;
     else success = true;
   }
