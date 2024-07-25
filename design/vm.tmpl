@@ -106,7 +106,15 @@ as suggested by the handout, this value is set during a system call.
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
 
-TODO
+* The relationship between virtual_memory_entry and frame data structures
+is designed to be one-to-many, such that multiple virtual_memory_entries 
+can point to the same frame in the case of aliasing. This relationship
+allows us to maintain references to both physical and virtual addresses
+to the page. During the eviction algorithm we take care to make sure
+that both the aliased and user pages have their reference and dirty bits
+updated. This design is quite rigid, in that it doesn't solve the issue
+for other types of aliases that *could* exist such as with page sharing;
+however it works for the purpose of the assignment. 
 
 ---- SYNCHRONIZATION ----
 
@@ -230,7 +238,9 @@ handler we unpin the page so that it may be considered for eviction again.
 >> between P evicting Q's frame and Q faulting the page back in?
 
 * These two race conditions are related, in the sense that during the
-eviction process  TODO
+eviction process the old page directory reference is cleared, which
+means that when process Q tries to access or modify it's page it will
+result in a page fault.
 
 * To make sure that process Q cannot fault it's page in while
 it is being evicted by process P, I use a per-frame lock. That is, each
@@ -248,7 +258,9 @@ lock to ensure proper synchronization with the eviction process.
 fault we acquire the frame lock, which is also required for the eviction 
 process. This means that while a frame is being page faulted in, if 
 another process is trying to evict that frame it must wait until the 
-reading is finished and the page has been fully loaded to memory. 
+reading is finished and the page has been fully loaded to memory, before
+it will be able to acquire the lock for the underlying frame in order to
+evict it. 
 
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
@@ -316,8 +328,16 @@ struct thread
 
 * Memory mapped pages are represented as "MMAP_PAGE" type virtual memory
 pages in my system. Although they are represented as a different page type,
-the share most of the same underlying state information from FILE_PAGE type
+they share most of the same underlying state information from FILE_PAGE type
 which is used for executables.
+
+* Furthermore, we maintain a list called "mmap_list" representing all
+memory mapped files for a thread / process. This list is comprised of 
+elements of type mmap_file. mmap_file is a data structure which holds
+state information regarding a memory mapped file, such as it's map_id,
+and a list of all VM entries corresponding to that memory mapped file.
+This means that mmap_file has a one-to-many relationship with 
+virtual_memory_entry.
 
 * During a page fault, we search the virtual memory of the thread to see if 
 the faulting address has an entry. When that entry is of type "FILE_PAGE" or
@@ -363,7 +383,7 @@ same page address.
 specific logic implemented in those system calls. This is done for maximum reusability,
 and in my opinion leads to a much cleaner code base as we can treat MMAP_FILE and
 FILE_PAGE types as mostly the same and reuse the same underlying functions, while
-still handling the edge cases. 
+still handling the small differences correctly.
 
                SURVEY QUESTIONS
                ================
