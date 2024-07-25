@@ -79,13 +79,14 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry, bool pin_frame)
   if (vm_entry->page_type == FILE_PAGE || vm_entry->page_type == MMAP_PAGE)
   {
     /* Get a page of memory. */
-  	uint8_t *kpage = allocate_frame (vm_entry, PAL_USER);
+  	struct frame *frame = allocate_frame (vm_entry, PAL_USER);
 
-  	if (kpage == NULL)
+  	if (frame == NULL)
     {
       vm_entry->pinned = false;
     	return false;
     }
+    lock_acquire (&frame->frame_lock);
 
   	struct file *file = vm_entry->file;
     size_t page_read_bytes = vm_entry->read_bytes;
@@ -95,20 +96,22 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry, bool pin_frame)
     file_seek (file, vm_entry->ofs);
 
     /* Load this page. */
-    if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+    if (file_read (file, frame->page, page_read_bytes) != (int) page_read_bytes)
     { 
       vm_entry->pinned = false;
       lock_release (&file_lock);
+      lock_release (&frame->frame_lock);
       free_vm_frame (vm_entry);
       return false; 
     }
     lock_release (&file_lock);
 
-    memset (kpage + page_read_bytes, 0, page_zero_bytes);
+    memset (frame->page + page_read_bytes, 0, page_zero_bytes);
 
     /* Add the page to the process's address space. */
-    if (!install_page (vm_entry->uaddr, kpage, vm_entry->writable)) 
+    if (!install_page (vm_entry->uaddr, frame->page, vm_entry->writable)) 
     {
+      lock_release (&frame->frame_lock);
       vm_entry->pinned = false;
       free_vm_frame (vm_entry);
       return false; 
@@ -117,22 +120,25 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry, bool pin_frame)
     vm_entry->in_memory = true;
     vm_entry->pinned = false;
 
+    lock_release (&frame->frame_lock);
   	return true;
   }
   else if (vm_entry->page_type == SWAP_PAGE)
   {
     /* Get a page of memory. */
-    uint8_t *kpage = allocate_frame (vm_entry, PAL_USER);
+    struct frame *frame = allocate_frame (vm_entry, PAL_USER);
 
-    if (kpage == NULL)
+    if (frame == NULL)
     {
       vm_entry->pinned = false;
       return false;
     }
+    lock_acquire (&frame->frame_lock);
 
     /* Add the page to the process's address space. */
-    if (!install_page (vm_entry->uaddr, kpage, vm_entry->writable)) 
+    if (!install_page (vm_entry->uaddr, frame->page, vm_entry->writable)) 
     {
+      lock_release (&frame->frame_lock);
       vm_entry->pinned = false;
       free_vm_frame (vm_entry);
       return false; 
@@ -143,6 +149,7 @@ handle_vm_page_fault (struct virtual_memory_entry *vm_entry, bool pin_frame)
     vm_entry->in_memory = true;
     vm_entry->pinned = false;
 
+    lock_release (&frame->frame_lock);
     return true;
   }
   return false;
@@ -173,23 +180,27 @@ create_swap_page_entry (void *addr)
   vm_entry->pinned = false;
   vm_entry->page_type = SWAP_PAGE;
 
-  uint8_t *kpage = allocate_frame (vm_entry, PAL_USER | PAL_ZERO);
+  struct frame *frame = allocate_frame (vm_entry, PAL_USER | PAL_ZERO);
 
-  if (kpage == NULL)
+  if (frame == NULL)
   {
     free (vm_entry);
     return NULL;
   }
+  lock_acquire (&frame->frame_lock);
 
-  bool success = install_page (vm_entry->uaddr, kpage, true);
+  bool success = install_page (vm_entry->uaddr, frame->page, true);
   if (!success)
   {
+    lock_release (&frame->frame_lock);
     free_vm_frame (vm_entry);
     free (vm_entry);
     return NULL;
   }
 
   hash_insert (&thread_current()->virtual_memory, &vm_entry->hash_elem);
+
+  lock_release (&frame->frame_lock);
 
   return vm_entry;
 }

@@ -10,14 +10,15 @@ struct frame
       struct thread *owner;                       /* Reference to the owner thread/process */
   	  struct virtual_memory_entry *vm_entry;      /* Reference to the corresponding virtual memory entry */
   	  struct list_elem elem;                      /* List element for LRU list */
+      struct lock frame_lock;                     /* Frame lock used to handle synchronization */
   };
 
 void initialize_lru_list (void);
-uint8_t *allocate_frame (struct virtual_memory_entry *vm_entry, enum palloc_flags flag);
+struct frame *allocate_frame (struct virtual_memory_entry *vm_entry, enum palloc_flags flag);
 void free_vm_frame (struct virtual_memory_entry *vm_entry);
 void free_frame (struct frame *fm);
 void free_all_frames (struct thread *t);
 struct frame *find_victim_frame (void);
-bool evict_frame (void);
+struct frame *evict_frame (void);
 
 #endif /* vm/frame.h */
