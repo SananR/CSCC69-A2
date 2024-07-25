@@ -33,19 +33,24 @@ Sanan Rao sanan.rao@mail.utoronto.ca
 enum virtual_memory_type
   {
     FILE_PAGE,
-    SWAP_PAGE
+    SWAP_PAGE,
+    MMAP_PAGE
   };
 
 struct virtual_memory_entry
   {
       uint8_t *uaddr;                       /* User virtual address of page */
       struct hash_elem hash_elem;           /* Hash table element. */
+      struct list_elem list_elem;           /* List element used for memory mapped files */
       enum virtual_memory_type page_type;   /* The virtual memory type, either file page or a swap page */
+      bool pinned;                          /* Pinning mechanism used to prevent page faults in kernel */
 
       struct file *file;                    /* Reference to the user file */
       uint32_t read_bytes;                  /* Number of read bytes for loading the file */
       uint32_t zero_bytes;                  /* Number of zeroed bytes for loading the file */
       off_t ofs;                            /* Offset for reading the file */
+
+      size_t swap_index;                    /* Index of the stored swap page */
 
       bool writable;                        /* Whether this frame can be written to */
       bool in_memory;                       /* Whether this frame is in memory */
@@ -58,8 +63,9 @@ struct thread
 #ifdef USERPROG
     ...
 
-    struct hash virtual_memory;                /* A hash table representing the set of virtual memory entries */
-    void *user_esp;                            /* Reference to user stack pointer, used to handle kernel stack growth */
+    struct hash virtual_memory;             /* A hash table representing the set of virtual memory entries */
+    void *user_esp;                         /* Reference to user stack pointer, used to handle kernel stack growth */
+    ...
 #endif
     ...
   };
@@ -70,9 +76,37 @@ struct thread
 >> A2: In a few paragraphs, describe your code for accessing the data
 >> stored in the SPT about a given page.
 
+* The goal of my design is to provide a centralized, abstract, and
+reusable virtual memory system. As such, all SPT entries are represented
+as "virtual memory entries" in my system, and many of the state data 
+needed for the various parts of virtual memory have been combined into
+this single data structure (some exceptions to be noted later). Virtual
+memory entries have a "virtual_memory_type", which is one of: 
+FILE_PAGE, MMAP_PAGE or SWAP_PAGE.
+
+* The virtual memory entry holds information regarding a user virtual
+memory page, it holds the user address, the information needed to read
+and write the page to it's backed file (in the case of FILE_PAGE or 
+MMAP_PAGE), as well as the information regarding where the page is stored
+in swap (in the case of SWAP_PAGE). It also stores some flags such as 
+whether or not the frame is loaded in memory and is writable. This design
+allows for maximum resuability, for instance we can treat a page as a 
+FILE_PAGE so that it is backed by a file, but later switch it to a 
+SWAP_PAGE easily so that it can be stored and loaded from swap. This is 
+exactly what is done for lazy loaded executable/bin files. 
+
+* Inside of the thread struct, we create a hash table called "virtual memory",
+this holds all of the virtual memory entries for a given thread / process. 
+We use the user address of the virtual memory for hashing and comparisons, 
+allowing for efficient lookup and storage of VM entries. Finally, to handle
+the case of kernel stack growth we store the user_esp on the thread struct 
+as suggested by the handout, this value is set during a system call. 
+
 >> A3: How does your code coordinate accessed and dirty bits between
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
+
+TODO
 
 ---- SYNCHRONIZATION ----
 
@@ -82,12 +116,19 @@ struct thread
 * I use a global "lru_lock" for the lru_list which contains a list of
 all allocated frames. When we are allocating a new frame, or freeing 
 an already allocated frame, we use the lock before accessing the 
-lru_list.
+lru_list to ensure that there are no race conditions. 
 
 ---- RATIONALE ----
 
 >> A5: Why did you choose the data structure(s) that you did for
 >> representing virtual-to-physical mappings?
+
+* As previously state my goal was to allow for maxiumum reusability.
+Although it would have been possible to completely decouple the
+various parts of the VM design, this would have led to a lot of
+repeated code as many parts of VM rely on the same underlying
+mechanisms. With my design for example, most of the code related
+to memory management of memory mapped files and executables is shared. 
 
                PAGING TO AND FROM DISK
                =======================
@@ -98,14 +139,60 @@ lru_list.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+/* List of allocated frames */
+static struct list lru_list;
+
+/* Lock for lru list. */
+static struct lock lru_lock;
+
+/* Used to implement the clock algorithm for eviction */
+static struct list_elem *clock_hand; 
+
+struct frame
+  {
+      uint8_t *page;                              /* Reference to the physical page address */
+      struct thread *owner;                       /* Reference to the owner thread/process */
+      struct virtual_memory_entry *vm_entry;      /* Reference to the corresponding virtual memory entry */
+      struct list_elem elem;                      /* List element for LRU list */
+      struct lock frame_lock;                     /* Frame lock used to handle synchronization */
+  };
+
+/* Bitmap used to manage swap state */
+static struct bitmap *swap_bitmap;
+
+/* Lock for interacting with the swap */
+static struct lock swap_lock;
+
+/* Reference to the swap block */
+static struct block *swap_block;
+
+* Each frame has a reference to a single vm_entry, however, multiple
+vm_entries could point to the same frame (aliasing). 
+
 ---- ALGORITHMS ----
 
 >> B2: When a frame is required but none is free, some frame must be
 >> evicted.  Describe your code for choosing a frame to evict.
 
+* I used the clock/second chance algorithm. A global reference to a
+list_elem called "clock_hand" is stored, and is used for the implementation.
+On the very first iteration the clock_hand points at the first frame element
+inside of lru_list. We iterate over the lru_list in a circular fashion (
+returning to the head element when we reach the end of the list), while 
+checking the accessed bit and resetting it's value to allow for a 
+"second chance". Once the victim element has been found we move the
+clock_hand forward one position and return the victim.
+
 >> B3: When a process P obtains a frame that was previously used by a
 >> process Q, how do you adjust the page table (and any other data
 >> structures) to reflect the frame Q no longer has?
+
+* We reuse the same underlying frame struct but reset the metadata so 
+that the new vm_entry is the owner of the frame struct. Furthermore,
+we remove the page from the old (process Q) page directory and 
+install the page in the new user process (process P). Additionally,
+when the PAL_ZERO flag is provided we also zero out the page before
+installing it to the new user process. 
 
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
@@ -124,21 +211,56 @@ fault.
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
+* I use a single global "lru_lock", combined with a per-frame "frame_lock"
+to handle most of the synchronization. Additionally, a global lock for
+the swap is also used to ensure safe reading and writing to the swap. 
+
+* In order to prevent deadlocks or trying to acquire the same lock twice,
+for example in the case of a page fault in kernel context during a 
+system call, I employ the "pinning" method. That is, during a system
+call (or any kernel context for that matter), we pin the associated page.
+In the implementation for eviction, we ensure that we do not consider
+pinned pages as candidates for a victim page to be evicted. After we 
+are finished with the page, and before returning from the system call
+handler we unpin the page so that it may be considered for eviction again.  
+
 >> B6: A page fault in process P can cause another process Q's frame
 >> to be evicted.  How do you ensure that Q cannot access or modify
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
+
+* These two race conditions are related, in the sense that during the
+eviction process  TODO
+
+* To make sure that process Q cannot fault it's page in while
+it is being evicted by process P, I use a per-frame lock. That is, each
+frame has a lock associated with it, when a process is evicting a frame
+it acquires this lock and doesn't release it until it is finished. Same
+for when a page fault needs to load in a frame, it acquires this same
+lock to ensure proper synchronization with the eviction process. 
 
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
 
+* The same lock from before also solves this problem, since during a page
+fault we acquire the frame lock, which is also required for the eviction 
+process. This means that while a frame is being page faulted in, if 
+another process is trying to evict that frame it must wait until the 
+reading is finished and the page has been fully loaded to memory. 
+
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
 >> in user programs), or do you have a mechanism for "locking" frames
 >> into physical memory, or do you use some other design?  How do you
 >> gracefully handle attempted accesses to invalid virtual addresses?
+
+* I use page faults to bring in paged-out pages that occur during system
+calls, same as with user programs. I changed the handling of page faults
+so that the same validation mechanisms from project 2 can still be used,
+however obviously page faults that are related to virtual memory such as 
+stack growth, dynamic/lazy loading, etc. are still handled accordingly. 
 
 ---- RATIONALE ----
 
@@ -149,6 +271,11 @@ fault.
 >> where your design falls along this continuum and why you chose to
 >> design it this way.
 
+* I believe that my design falls somewhere in the middle on this continuum.
+I make use of two global locks, one for managing lru_list the list of all
+frames and the other for safe access to the swap bitmap. However, a per-frame
+lock is also used to allow for more parallelism in the design.
+
              MEMORY MAPPED FILES
              ===================
 
@@ -157,6 +284,8 @@ fault.
 >> C1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+
+typedef int mapid_t;
 
 /* State information regarding a memory mapped file */
 struct mmap_file
@@ -185,19 +314,29 @@ struct thread
 >> memory subsystem.  Explain how the page fault and eviction
 >> processes differ between swap pages and other pages.
 
-* Memory mapped pages are represented as "FILE_PAGE" type virtual memory
-pages in my system. They share the same type as the lazy loaded executables,
-with the difference being that they are writable. This allows to reuse most 
-of the same code between the management of all "file backed" pages. 
+* Memory mapped pages are represented as "MMAP_PAGE" type virtual memory
+pages in my system. Although they are represented as a different page type,
+the share most of the same underlying state information from FILE_PAGE type
+which is used for executables.
 
 * During a page fault, we search the virtual memory of the thread to see if 
-the faulting address has an entry. When that entry is of type "FILE_PAGE", 
-that is a page representing either a executable (code) or a memory mapped file,
-we load the page into memory from the backed file, which is stored on the vm_entry. 
+the faulting address has an entry. When that entry is of type "FILE_PAGE" or
+of type "MMAP_PAGE", that is a page representing either a executable (code) 
+or a memory mapped file, we load the page into memory from the backed file,
+which is stored on the vm_entry. When the file type is "SWAP_PAGE", we
+load the data in from the swap. 
 
-* TODO eviction
+* During eviction, we first check to see if the page has been modified (by
+checking the dirty bit), in the case that it has not been modified we simply
+free the page (from the pagedir) and reset it's ownership metadata. In the case
+the page has been modified, we check to see the type of the page. When the type 
+is MMAP_FILE, we store the data from the page back to the underlying memory mapped
+file as required. When the page type is not MMAP_FILE, we store the data to swap,
+furthermore we change the type of the VM entry to be SWAP_FILE, this ensures that 
+executables/binary files for example are lazy loaded from the file/disk when 
+required, but later stored and read from swap as is necessary.
 
-Furthermore, for memory mapped files we explicitly write the loaded page back to
+* Lastly, for memory mapped files we explicitly write the loaded page back to
 it's underlying mapped file (which is reopened reference to ensure safe access even 
 after file has closed or been removed) on munmap, which is implicitly called for all
 of a process's memory mapped files on exit. 
@@ -222,7 +361,9 @@ same page address.
 
 * My code shares all of the same implementation, aside from the memory mapped file
 specific logic implemented in those system calls. This is done for maximum reusability,
-and in my opinion leads to a much cleaner code base. TODO FIX?
+and in my opinion leads to a much cleaner code base as we can treat MMAP_FILE and
+FILE_PAGE types as mostly the same and reuse the same underlying functions, while
+still handling the edge cases. 
 
                SURVEY QUESTIONS
                ================
